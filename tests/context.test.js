@@ -145,6 +145,37 @@ export function run() {
     ok(user.includes("R2のアルファの発言") && user.includes("R3のブラボーの発言"), "従来の範囲が変わった");
   });
 
+  test("C-21 縮小中は自分の過去の発言も直近だけ全文にする（D-075）", () => {
+    const s = makeSession({ contextRounds: 2 });
+    const long = "あ".repeat(400);
+    s.turns = [
+      { round: 1, agentId: "a0", role: "propose", text: "R1自分" + long },
+      { round: 2, agentId: "a0", role: "critique", text: "R2自分" + long },
+      { round: 3, agentId: "a0", role: "critique", text: "R3自分" + long },
+      { round: 3, agentId: "a1", role: "critique", text: "R3のブラボーの発言" }
+    ];
+    const ownBlock = (u) => (u.split("【あなたのこれまでの発言】")[1] ?? "").split("\n\n【")[0];
+
+    // 縮小なし: 3件とも全文
+    s.contextShrink = 0;
+    eq(ownBlock(buildContext(s, s.config.agents[0], 4, "summary").user).includes("…"), false,
+      "縮小していないのに自分の発言が切り詰められた");
+
+    // 縮小1: 直近2件が全文、それより前は切り詰め
+    s.contextShrink = 1;
+    const b1 = ownBlock(buildContext(s, s.config.agents[0], 4, "summary").user);
+    ok(b1.includes("R1自分") && b1.includes("…"), "R1 が切り詰められていない");
+    ok(b1.includes("R2自分" + long), "R2 は全文で残るべき");
+    ok(b1.includes("R3自分" + long), "R3 は全文で残るべき");
+
+    // 縮小2: 直近1件だけ全文
+    s.contextShrink = 2;
+    const b2 = ownBlock(buildContext(s, s.config.agents[0], 4, "summary").user);
+    ok(!b2.includes("R2自分" + long), "縮小2なのに R2 が全文のまま");
+    ok(b2.includes("R3自分" + long), "直近の1件は全文で残るべき");
+    ok(b2.length < b1.length, "縮小2のほうが短くなっていない");
+  });
+
   test("C-11 persona があれば system に注入される（FR-03-09 ソロ議論モード）", () => {
     const s = makeSession();
     s.config.agents[0].persona = "懐疑派。リスクと反例を重視する。";

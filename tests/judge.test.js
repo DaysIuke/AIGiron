@@ -1,9 +1,9 @@
 // tests/judge.test.js — 審判の匿名化・プロンプト・実行。
 
 import { group, test, atest, eq, ok } from "./runner.js";
-import { anonymize, renderAnonymous, judgePrompt, issuesPrompt, synthesisPrompt,
+import { anonymize, renderAnonymous, anonymousTranscript, judgePrompt, issuesPrompt, synthesisPrompt,
          judgeBiasWarning, runEvaluation, lengthScoreCorrelation,
-         consensusRate, mindChanges, CRITERIA, SCORE_MAX } from "../js/judge.js";
+         consensusRate, mindChanges, CRITERIA, SCORE_MAX, JUDGE_TRANSCRIPT_CHARS } from "../js/judge.js";
 import { DEFAULTS, makeAgent } from "../js/config.js";
 
 function makeSession() {
@@ -150,6 +150,107 @@ export async function run() {
     eq(out.judgement.scores[0].score, 10);
     eq(out.judgement.scores[1].score, 0);
     eq(out.judgement.winnerAgentId, null, "引き分けは null のはず");
+  });
+
+  group("judge.js 審判に渡す議論の上限とレート耐性（D-075）");
+
+  // 長い議論を作る。1発言 500 字 × 20 発言 = 1万字。
+  function longSession(turns = 20, chars = 500) {
+    const s = makeSession();
+    s.turns = Array.from({ length: turns }, (_, i) => ({
+      round: Math.floor(i / 2) + 1, index: i % 2,
+      agentId: i % 2 ? "a1" : "a0", role: i % 2 ? "critique" : "propose",
+      text: (i % 2 ? "ブラボーの発言" : "アルファの発言") + i + "。" + "あ".repeat(chars)
+    }));
+    return s;
+  }
+
+  test("JD-29 上限を超える議論は全発言が同じ長さで打ち切られる（誰も丸ごと落とさない）", () => {
+    const s = longSession();
+    const { map } = anonymize(s);
+    const full = anonymousTranscript(s, map, 0);
+    eq(full.truncated, false, "上限0なら打ち切らない");
+
+    const tr = anonymousTranscript(s, map, 3000);
+    ok(tr.truncated, "上限を超えているのに打ち切られていない");
+    ok(tr.text.length < full.text.length, "短くなっていない");
+    // 20発言すべてが残っている（発言を落とすと落とされた側が不当に低く採点される）
+    eq((tr.text.match(/^R\d+ /gm) ?? []).length, 20, "発言が落ちている");
+    ok(tr.text.includes("参加者A") && tr.text.includes("参加者B"), "参加者が消えた");
+    // 打ち切りの長さが揃っている
+    const lens = tr.text.split("\n\n").map((l) => l.length);
+    ok(Math.max(...lens) - Math.min(...lens) <= 4, "打ち切りの長さが揃っていない: " + lens.join(","));
+  });
+
+  test("JD-29b 打ち切ったときはプロンプトに「短さを理由に減点しない」注記が入る", () => {
+    const s = longSession();
+    const { map } = anonymize(s);
+    const cut = judgePrompt(s, map, 3000);
+    ok(cut.includes("途中で終わっていることを理由に減点しない"), "注記が無い");
+    const notCut = judgePrompt(makeSession(), map, JUDGE_TRANSCRIPT_CHARS);
+    ok(!notCut.includes("途中で終わっていることを理由に減点しない"), "短い議論なのに注記が出ている");
+    // 論点・統合のプロンプトにも効く
+    ok(issuesPrompt(s, map, 3000).length < issuesPrompt(s, map, 0).length, "論点プロンプトに上限が効いていない");
+    ok(synthesisPrompt(s, map, 3000).length < synthesisPrompt(s, map, 0).length, "統合プロンプトに上限が効いていない");
+  });
+
+  await atest("JD-30 審判の 429 は待って張り直す（討論で枠を使い切った直後を想定）", async () => {
+    const s = makeSession();
+    const slept = [];
+    let n = 0;
+    const callProvider = async (agent, ctx) => {
+      n++;
+      if (n <= 2) throw { kind: "rate", retryAfterSec: 8, message: "TPM" };
+      return ctx.user.includes("審判")
+        ? { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+            { participant: "参加者B", score: 6, reason: "r" }], winner: "参加者B", summary: "s" }) }
+        : { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast" },
+      callProvider, budget: null, getKey: () => "", onLog: () => {},
+      sleep: async (sec) => { slept.push(sec); }
+    });
+    eq(out.error, null, "429 を待てば通るのに失敗扱いになっている");
+    eq(slept, [9, 9], "APIの指示（8秒）＋1秒で待つべき");
+    eq(out.judgement.winnerAgentId, "a1");
+  });
+
+  await atest("JD-30b 待機が上限を超えたら諦める。他の呼び出しは巻き添えにしない", async () => {
+    const s = makeSession();
+    const callProvider = async (agent, ctx) => {
+      if (ctx.user.includes("審判")) throw { kind: "rate", retryAfterSec: 100, message: "TPM" };
+      return { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast" },
+      callProvider, budget: null, getKey: () => "", onLog: () => {},
+      sleep: async () => {}, maxWaitSec: 30
+    });
+    ok(out.error && out.error.includes("採点に失敗"), "採点の失敗が報告されていない");
+    ok(out.issues && !out.issues.raw, "論点抽出まで巻き添えになっている");
+  });
+
+  await atest("JD-31 審判の 413 は渡す議論を半分に切って張り直す", async () => {
+    const s = longSession(20, 600);
+    const lens = [];
+    let n = 0;
+    const callProvider = async (agent, ctx) => {
+      if (ctx.user.includes("審判")) {
+        lens.push(ctx.user.length);
+        if (++n === 1) throw { kind: "toolarge", message: "大きすぎます" };
+        return { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+          { participant: "参加者B", score: 5, reason: "r" }], winner: null, summary: "s" }) };
+      }
+      return { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast" },
+      callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {}
+    });
+    eq(out.error, null);
+    ok(lens.length === 2 && lens[1] < lens[0], "張り直しで短くなっていない: " + lens.join(","));
+    ok(Array.isArray(out.judgement.scores), "採点が返っていない");
   });
 
   group("judge.js 議長による統合（FR-08-09・D-070）");

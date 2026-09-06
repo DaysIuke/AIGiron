@@ -360,7 +360,10 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
               ac = new AbortController();
               const ev = await runEvaluation({
                 session: s, judgeCfg: jc, callProvider, budget, getKey,
-                onLog: (m) => log("WARN", m), signal: ac.signal
+                onLog: (m) => log("WARN", m), signal: ac.signal,
+                // D-075: 審判のレート待ちも pause/stop で断ち切れるようにする（討論側と同じ経路）
+                sleep: (sec) => interruptibleSleep(sec, { tick: true }),
+                maxWaitSec: s.config.maxWaitSec ?? 60
               });
               // レビュー: live() は epoch としか比較せず state.status を見ないため、
               //   評価中に pause()/stop() されても while ループの外（ここ）では

@@ -101,11 +101,17 @@ export function buildContext(session, agent, round, role) {
     parts.push("【直近の発言】\n" + shown.map((t) => renderTurn(session, t)).join("\n"));
   }
 
-  // 自分の発言は常に全文
+  // 自分の発言は常に渡す（自分の立場を見失わせない）。ただしラウンド数に比例して増えるため、
+  // D-075: 縮小中は**直近の数件だけ全文**にして、それより前は切り詰める。
+  //   D-074 で「他者の発言」だけを縮めたが、自分の発言は手つかずだった。ラウンドが進むと
+  //   ここが最大の項になり（3ラウンドなら 3×maxChars）、縮めても 413 を抜けられない。
   const own = session.turns.filter((t) => t.agentId === agent.id);
   if (own.length) {
+    const keepFull = shrink >= 2 ? 1 : shrink >= 1 ? 2 : own.length;
+    const from = Math.max(0, own.length - keepFull);
     parts.push(
-      "【あなたのこれまでの発言】\n" + own.map((t) => `R${t.round}: 「${t.text}」`).join("\n")
+      "【あなたのこれまでの発言】\n" +
+      own.map((t, i) => `R${t.round}: 「${i < from ? truncate(t.text, 100) : t.text}」`).join("\n")
     );
   }
 
