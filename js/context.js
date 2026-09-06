@@ -1,0 +1,117 @@
+// context.js — コンテキスト構築（純関数）。
+// session.summaries は読むだけ。書き込みは engine が行う（BD §4.9）。
+
+import { ROLE_LABELS, HUMAN_ID } from "./config.js";
+import { systemPrompt, roundInstruction } from "./prompts.js";
+
+// A033: 疎な通信でトークンを削減する
+// A005: 通信トポロジの4形態
+function visibleTurns(session, agent, turns) {
+  const topology = session.config.topology;
+  if (topology === "all") return turns;
+  if (topology === "previous") return turns.slice(-1);
+  if (topology === "adjacent") {
+    // 環状の隣接。端の参加AIも両隣2体が見える（BD §4.7）
+    const byId = new Map(session.config.agents.map((a) => [a.id, a]));
+    const n = session.config.agents.length;
+    return turns.filter((t) => {
+      const other = byId.get(t.agentId);
+      if (!other) return false;
+      const d = Math.abs(other.roleIndex - agent.roleIndex);
+      return Math.min(d, n - d) <= 1;
+    });
+  }
+  if (topology === "judgeOnly") return turns.slice(-1);
+  return turns;
+}
+
+function label(session, agentId) {
+  if (agentId === HUMAN_ID) return "司会";
+  const a = session.config.agents.find((x) => x.id === agentId);
+  return a ? a.name : agentId;
+}
+
+// AIの発言に「【司会からの指示・質問】」と書かれても、本物の司会ブロックと紛れないようにする。
+// 本物は buildContext が HUMAN_ID の発言からだけ組み立てる（B071 の延長）。
+const MOD_HEAD = "【司会からの指示・質問】";
+function neutralize(text) {
+  return String(text ?? "").split(MOD_HEAD).join("〔司会からの指示・質問〕");
+}
+
+function renderTurn(session, t) {
+  const role = ROLE_LABELS[t.role] ?? t.role;
+  return `R${t.round} ${label(session, t.agentId)}(${role}): 「${neutralize(t.text)}」`;
+}
+
+// あるラウンドの発言を素のテキストにする。要約の入力に使う。
+export function renderRoundPlain(session, round) {
+  return session.turns
+    .filter((t) => t.round === round)
+    .map((t) => renderTurn(session, t))
+    .join("\n");
+}
+
+export function truncate(text, n) {
+  const s = String(text ?? "");
+  return s.length <= n ? s : s.slice(0, n) + "…";
+}
+
+export function buildContext(session, agent, round, role) {
+  const cfg = session.config;
+  const recentFrom = Math.max(1, round - cfg.contextRounds);
+
+  const hasSpoken = session.turns.some((t) => t.agentId === agent.id);
+  const system = systemPrompt({
+    name: agent.name,
+    roleInstruction: roundInstruction(role),
+    stance: agent.stance,
+    maxChars: cfg.maxChars,
+    format: cfg.format,
+    hasSpoken,
+    persona: agent.persona || "",
+    solo: Boolean(agent.solo)
+  });
+
+  const parts = [`【議題】${session.topic}`];
+
+  // 直近より前のラウンドは要約で渡す
+  const summarized = [];
+  for (let r = 1; r < recentFrom; r++) {
+    if (session.summaries[r]) summarized.push(`R${r}: ${session.summaries[r]}`);
+  }
+  if (summarized.length) {
+    parts.push("【これまでの議論の要約】\n" + summarized.join("\n"));
+  }
+
+  // 直近 contextRounds ラウンドは全文。自分の発言はここから外す。
+  // FR-05-07: 司会（人間）の差し込みはトポロジで絞らず、直近の範囲にあれば必ず渡す。
+  const recentAll = session.turns.filter(
+    (t) => t.round >= recentFrom && t.round <= round && t.agentId !== agent.id
+  );
+  const notes = recentAll.filter((t) => t.agentId === HUMAN_ID);
+  const recent = recentAll.filter((t) => t.agentId !== HUMAN_ID);
+  const shown = visibleTurns(session, agent, recent);
+  if (shown.length) {
+    parts.push("【直近の発言】\n" + shown.map((t) => renderTurn(session, t)).join("\n"));
+  }
+
+  // 自分の発言は常に全文
+  const own = session.turns.filter((t) => t.agentId === agent.id);
+  if (own.length) {
+    parts.push(
+      "【あなたのこれまでの発言】\n" + own.map((t) => `R${t.round}: 「${t.text}」`).join("\n")
+    );
+  }
+
+  // FR-05-07（D-070）: 司会からの差し込み。末尾近くに置いて必ず応えさせる（C017）。
+  if (notes.length) {
+    parts.push(MOD_HEAD + "\n" +
+      notes.map((t) => `R${t.round}: 「${neutralize(t.text)}」`).join("\n") +
+      "\n司会は議論の運営者です。上の指示・質問には次の発言の中で必ず応えてください。");
+  }
+
+  // C017: 重要な指示は末尾に置く
+  parts.push("【今回あなたがすること】\n" + roundInstruction(role));
+
+  return { system, user: parts.join("\n\n") };
+}

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIGiron — AI同士が議論する</title>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none';
+  img-src 'self' data:; style-src 'self'; script-src 'self'; form-action 'none';
+  connect-src 'self'
+    https://api.groq.com https://generativelanguage.googleapis.com
+    https://api.cerebras.ai https://api.mistral.ai https://openrouter.ai
+    https://api.openai.com https://api.anthropic.com;
+">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header id="hdr">
+  <div id="hdr-title">AIGiron</div>
+  <div id="hdr-agents"></div>
+  <div id="hdr-round">ROUND - / -</div>
+  <button id="btn-sessions" class="btn">履歴</button>
+  <button id="btn-settings" class="btn">設定</button>
+</header>
+
+<section id="controls">
+  <div class="ctl-row">
+    <label class="ctl-topic">
+      <span class="ctl-label">議題</span>
+      <input id="topic" type="text" maxlength="500" placeholder="例: リモートワークは生産性を上げるか">
+    </label>
+    <span id="topic-count" class="ctl-count">0 / 500</span>
+  </div>
+  <div id="topic-helpers" class="ctl-row"></div>
+  <div class="ctl-row">
+    <label class="ctl-rounds">
+      <span class="ctl-label">ラウンド</span>
+      <input id="rounds" type="number" min="1" max="10" value="3">
+    </label>
+    <span id="req-estimate" class="ctl-estimate">推定 - req</span>
+    <span class="ctl-spacer"></span>
+    <button id="btn-start" class="btn btn-primary">開始</button>
+    <button id="btn-pause" class="btn">一時停止</button>
+    <button id="btn-resume" class="btn">再開</button>
+    <button id="btn-stop" class="btn">停止</button>
+  </div>
+  <div class="ctl-row">
+    <span id="run-status" class="ctl-status" data-state="idle">待機中</span>
+  </div>
+  <div class="ctl-row" id="moderator-row">
+    <label class="ctl-topic">
+      <span class="ctl-label">司会</span>
+      <input id="mod-text" type="text" maxlength="2000" placeholder="一時停止中か終了後に、質問や指示を差し込めます">
+    </label>
+    <button id="btn-interject" class="btn" disabled>差し込む</button>
+    <label class="ctl-rounds">
+      <span class="ctl-label">追加</span>
+      <input id="extend-n" type="number" min="1" max="10" value="1">
+    </label>
+    <button id="btn-extend" class="btn" disabled>ラウンドを足して続ける</button>
+  </div>
+</section>
+
+<aside id="infobar" hidden></aside>
+
+<div id="log-toolbar" class="log-toolbar">
+  <span class="ctl-label">ログ:</span>
+  <button id="btn-copy-log" class="btn-mini">コピー</button>
+</div>
+<section id="log" role="log" aria-live="polite" aria-label="進行ログ"></section>
+
+<nav id="tabs">
+  <button data-tab="debate" data-active="true">議論</button>
+  <button data-tab="synthesis">結論</button>
+  <button data-tab="issues">論点</button>
+  <button data-tab="verdict">判定</button>
+  <span class="tabs-spacer"></span>
+  <button id="btn-copy-md" class="btn" disabled>Markdown をコピー</button>
+</nav>
+
+<section id="panel-debate"></section>
+<section id="panel-synthesis" hidden></section>
+<section id="panel-issues" hidden></section>
+<section id="panel-verdict" hidden></section>
+
+<div id="settings-root" hidden></div>
+<div id="sessions-root" hidden></div>
+<footer id="statusbar"></footer>
+
+<div id="export-root" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

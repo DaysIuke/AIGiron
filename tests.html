@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>AIGiron tests</title>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none';
+  img-src 'self' data:; style-src 'self'; script-src 'self'; form-action 'none';
+  connect-src 'self';
+">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header id="hdr"><div id="hdr-title">AIGiron tests</div></header>
+<div id="test-summary">実行中…</div>
+<div id="test-results"></div>
+
+<script type="module" src="tests/all.js"></script>
+</body>
+</html>
