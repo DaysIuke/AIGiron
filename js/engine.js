@@ -5,7 +5,7 @@ import { computeOrder } from "./order.js";
 import { roleOf, proposerFor } from "./roles.js";
 import { buildContext, renderRoundPlain, truncate } from "./context.js";
 import { backoffSec } from "./errors.js";
-import { estimateRequests, DEFAULTS, HUMAN_ID } from "./config.js";
+import { estimateRequests, estimateTokensPerRequest, DEFAULTS, HUMAN_ID } from "./config.js";
 import { runEvaluation, judgeBiasWarning } from "./judge.js";
 
 function deferred() {
@@ -66,6 +66,7 @@ export function createSession({ topic, config, seed, now }) {
     votes: null,
     issues: null,
     synthesis: null,      // FR-08-09: 議長による統合（D-070）
+    contextShrink: 0,     // D-074: 413 で縮めた段階（0〜2）。セッションの残りに効く
     errors: []
   };
 }
@@ -151,7 +152,8 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
   }
 
   async function onRoundComplete(s, round) {
-    const target = round - s.config.contextRounds;
+    // D-074: 縮小中は全文が直近1ラウンドだけになるので、その手前を要約する
+    const target = round - (s.contextShrink ? 1 : s.config.contextRounds);
     if (target < 1) return;
     if (s.summaries[target]) return;
 
@@ -217,12 +219,26 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
         pause(e.message);
         return;
 
-      // D-022: コンテキストを送りすぎ。全員が同じ設定を共有しているので、
-      //   1体だけ落としても残りが同じ壁に当たる。セッションごと止めて設定を直させる。
-      case "toolarge":
+      // D-022: コンテキストを送りすぎ。全員が同じ設定を共有しているので、1体だけ落としても
+      //   残りが同じ壁に当たる。
+      // D-074: ただし即座にセッションを止めると、それまでの成功分（総括・審判）まで捨てる。
+      //   実運用（Groq 無料枠 TPM 8,000）では総括ラウンドで 413 が出て15件の発言が総括無しで終わった。
+      //   渡す範囲を2段階（直近1ラウンド → 直前の発言だけ）まで縮めて同じターンを張り直し、
+      //   それでも駄目なときだけ止める。縮小はセッションの残りにも効く（設定は変えない）。
+      case "toolarge": {
+        const level = s.contextShrink ?? 0;
+        if (level < 2) {
+          s.contextShrink = level + 1;
+          log("WARN", agent.name + ": 送るコンテキストが大きすぎました。渡す範囲を縮めて張り直します（" +
+            (s.contextShrink === 1 ? "全文は直近1ラウンドだけ" : "直前の発言だけ") +
+            "）。この縮小はこのセッションの残りにも効きます");
+          await persist(s);
+          return;   // 同じターンを再実行
+        }
         log("WARN", "議論設定を小さくしてください（1発言の文字数上限・全文で渡す直近ラウンド数・参加数）");
         finish("error", "コンテキストが大きすぎます");
         return;
+      }
 
       // D-024: 出力枠を思考トークンで使い切った状態。同じ枠で再試行しても必ず同じ結果になる。
       //   このAIに限って枠を倍にして1度だけ張り直す。それでも駄目なら失敗として数える。
@@ -519,6 +535,14 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
     finishReason = null;
     emit("session:started", s);
     log("INFO", "議論を開始します（推定 " + est + " リクエスト・シード " + s.seed + "）");
+    // D-074: 無料枠は TPM で効く。1回の要求量が大きい設定は、進むほど確実に 429/413 に当たる。
+    //   画面の推定表示は見落とされるので、開始時のログにも出す。
+    const tok = estimateTokensPerRequest({ ...merged, topicLength: s.topic.length });
+    if (tok > 6000) {
+      log("WARN", "1リクエストあたり最大 約" + tok.toLocaleString() + " トークンの見込みです。無料枠の TPM" +
+        "（Groq は 8,000 など）に近いか超えています。レート制限や 413 が続くなら、設定の「無料枠向けの設定」か、" +
+        "全文で渡す直近ラウンド数・文字数上限・参加数を減らしてください");
+    }
     setStatus("running");
     await persist(s);
     return runLoop();

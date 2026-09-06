@@ -6,8 +6,7 @@ import { systemPrompt, roundInstruction } from "./prompts.js";
 
 // A033: 疎な通信でトークンを削減する
 // A005: 通信トポロジの4形態
-function visibleTurns(session, agent, turns) {
-  const topology = session.config.topology;
+function visibleTurns(session, agent, turns, topology) {
   if (topology === "all") return turns;
   if (topology === "previous") return turns.slice(-1);
   if (topology === "adjacent") {
@@ -58,7 +57,12 @@ export function truncate(text, n) {
 
 export function buildContext(session, agent, round, role) {
   const cfg = session.config;
-  const recentFrom = Math.max(1, round - cfg.contextRounds);
+  // D-074: 413（送りすぎ）で縮めた段階。1 = 全文は直近1ラウンドだけ、2 = さらに直前の発言だけ。
+  //   設定は変えず、セッションの残りにだけ効かせる。
+  const shrink = session.contextShrink ?? 0;
+  const contextRounds = shrink >= 1 ? 1 : cfg.contextRounds;
+  const topology = shrink >= 2 ? "previous" : cfg.topology;
+  const recentFrom = Math.max(1, round - contextRounds);
 
   const hasSpoken = session.turns.some((t) => t.agentId === agent.id);
   const system = systemPrompt({
@@ -77,7 +81,9 @@ export function buildContext(session, agent, round, role) {
   // 直近より前のラウンドは要約で渡す
   const summarized = [];
   for (let r = 1; r < recentFrom; r++) {
-    if (session.summaries[r]) summarized.push(`R${r}: ${session.summaries[r]}`);
+    // 要約が無いラウンド（縮小で範囲が動いた直後など）は、その場で切り詰めて渡す。黙って落とさない。
+    const sm = session.summaries[r] ?? truncate(renderRoundPlain(session, r), 400);
+    if (sm) summarized.push(`R${r}: ${sm}`);
   }
   if (summarized.length) {
     parts.push("【これまでの議論の要約】\n" + summarized.join("\n"));
@@ -90,7 +96,7 @@ export function buildContext(session, agent, round, role) {
   );
   const notes = recentAll.filter((t) => t.agentId === HUMAN_ID);
   const recent = recentAll.filter((t) => t.agentId !== HUMAN_ID);
-  const shown = visibleTurns(session, agent, recent);
+  const shown = visibleTurns(session, agent, recent, topology);
   if (shown.length) {
     parts.push("【直近の発言】\n" + shown.map((t) => renderTurn(session, t)).join("\n"));
   }

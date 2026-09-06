@@ -117,6 +117,34 @@ export function run() {
     eq(truncate("abc", 5), "abc");
   });
 
+  test("C-18 contextShrink=1 は全文を直近1ラウンドに絞り、外れたラウンドは要約が無くても切り詰めで渡す（D-074）", () => {
+    const s = makeSession({ contextRounds: 2 });
+    s.contextShrink = 1;
+    s.summaries = {};   // 縮小直後は要約が間に合っていない
+    const { user } = buildContext(s, s.config.agents[2], 3, "critique");
+    const recent = (user.split("【直近の発言】")[1] ?? "").split("\n\n【")[0];
+    ok(!recent.includes("R1のアルファの発言"), "直近1ラウンドに絞ったのに R1 の全文が残っている");
+    ok(recent.includes("R2のアルファの発言"), "R2 が直近から消えた");
+    const summary = (user.split("【これまでの議論の要約】")[1] ?? "").split("\n\n【")[0];
+    ok(summary.includes("R1のアルファの発言"), "要約が無い R1 が切り詰めでも渡されていない");
+  });
+
+  test("C-19 contextShrink=2 はさらに直前の発言だけにする（D-074）", () => {
+    const s = makeSession({ contextRounds: 2, topology: "all" });
+    s.contextShrink = 2;
+    const { user } = buildContext(s, s.config.agents[2], 3, "critique");
+    const recent = (user.split("【直近の発言】")[1] ?? "").split("\n\n【")[0];
+    ok(recent.includes("R3のブラボーの発言"), "直前の発言が無い");
+    ok(!recent.includes("R2のアルファの発言"), "直前より前の発言が残っている");
+  });
+
+  test("C-20 contextShrink が無い（旧セッション）なら従来どおり", () => {
+    const s = makeSession({ contextRounds: 2 });
+    delete s.contextShrink;
+    const { user } = buildContext(s, s.config.agents[2], 3, "critique");
+    ok(user.includes("R2のアルファの発言") && user.includes("R3のブラボーの発言"), "従来の範囲が変わった");
+  });
+
   test("C-11 persona があれば system に注入される（FR-03-09 ソロ議論モード）", () => {
     const s = makeSession();
     s.config.agents[0].persona = "懐疑派。リスクと反例を重視する。";

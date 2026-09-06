@@ -191,7 +191,7 @@ export function run() {
       eq(r.session.requestCount, 2, "3体目に進む前に止まるべき");
     });
 
-    await atest("E-8e 413 はセッションごと止める（D-022）", async () => {
+    await atest("E-8e 413 は渡す範囲を2段階まで縮めて張り直し、それでも駄目ならセッションを止める（D-022→D-074）", async () => {
       const { engine, cfg } = setup({
         n: 3,
         config: { rounds: 3, enableSummaryRound: false },
@@ -200,7 +200,30 @@ export function run() {
       const r = await engine.start({ topic: "議題", config: cfg, seed: 1 });
       eq(r.status, "error");
       eq(r.reason, "コンテキストが大きすぎます");
-      eq(r.session.requestCount, 1, "1体目で止まるべき。全員が同じ壁に当たるため");
+      eq(r.session.contextShrink, 2, "2段階まで縮めてから諦めるべき");
+      eq(r.session.requestCount, 3, "同じターンを縮小して2回張り直してから止まるべき（1体目のまま）");
+    });
+
+    await atest("E-8e2 413 が1回なら縮めた範囲で同じターンをやり直し、完走する（D-074）", async () => {
+      const seen = [];
+      const { engine, cfg } = setup({
+        n: 3,
+        config: { rounds: 3, enableSummaryRound: false, contextRounds: 2 },
+        respond: (a, nth, ctx) => {
+          seen.push(ctx.user);
+          if (nth === 7) throw { kind: "toolarge", message: "大きすぎます" };   // R3 の最初のターン
+          return okText();
+        }
+      });
+      const r = await engine.start({ topic: "議題", config: cfg, seed: 1 });
+      eq(r.status, "done");
+      eq(r.session.turns.length, 9, "発言が欠けた");
+      eq(r.session.contextShrink, 1);
+      eq(r.session.requestCount, 10, "張り直し1回分だけ増えるべき");
+      const recentOf = (u) => (u.split("【直近の発言】")[1] ?? "").split("\n\n【")[0];
+      ok(/^R1 /m.test(recentOf(seen[6])), "縮小前の R3 には R1 の全文が入っているはず");
+      ok(!/^R1 /m.test(recentOf(seen[7])), "縮小後の張り直しで R1 の全文が残っている");
+      ok(seen[7].includes("【これまでの議論の要約】") && seen[7].includes("R1:"), "範囲から外れた R1 が要約として渡っていない");
     });
 
     await atest("E-8f 出力枠不足は枠を倍にして張り直す（D-024）", async () => {
