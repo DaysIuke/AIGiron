@@ -1,6 +1,6 @@
 // ui/synthesis.js — 議長による統合（結論タブ・FR-08-09・D-070）。
 
-import { on, state } from "../state.js";
+import { on, state, emit } from "../state.js";
 import { el, clear } from "./dom.js";
 import { AGENT_SHAPES } from "../config.js";
 
@@ -48,7 +48,25 @@ export function mountSynthesis(root) {
       el("span", { class: "synth-who", text: nameOf(u?.agentId, u?.participant) + ": " }),
       String(u?.point ?? "")
     ]);
-    section("残った問い", syn.openQuestions, (x) => [String(x)]);
+    // FR-12-04（D-077）: 残った問いは「次に考えるべきこと」そのもの。
+    //   ここで行き止まりにせず、その問いを議題にして議論を続けられるようにする。
+    section("残った問い", syn.openQuestions, (x) => {
+      const q = String(x);
+      return [
+        el("span", { class: "synth-q", text: q }),
+        el("button", {
+          type: "button", class: "btn-mini synth-next", text: "この問いで議論する",
+          onClick: () => emit("topic:carryover", {
+            topic: q,
+            premise: {
+              fromTopic: state.session?.topic ?? "",
+              question: q,
+              answer: String(syn.answer ?? "")
+            }
+          })
+        })
+      ];
+    });
 
     root.appendChild(el("p", { class: "field-hint",
       text: "議長は匿名化した議論（参加者A/B/…）を読んで統合しています。参加者名は表示のときに戻しています" }));

@@ -850,6 +850,49 @@ export function run() {
       ok(seen.slice(3).every((u) => u.includes("次は反例を挙げてください")), "追加ラウンドの発言に司会の文が無い");
     });
 
+    await atest("E-35 開始時の一言は司会の発言として積まれ、最初の発言から参照される（FR-12-05・D-077）", async () => {
+      const seen = [];
+      const { engine, cfg } = setup({
+        n: 2, config: { rounds: 1, enableSummaryRound: false },
+        respond: (a, nth, ctx) => { seen.push(ctx.user); return okText(); }
+      });
+      const r = await engine.start({
+        topic: "議題", config: cfg, seed: 1, note: "費用の観点を必ず入れてください"
+      });
+      eq(r.status, "done");
+      const human = r.session.turns.filter((t) => t.agentId === "human");
+      eq(human.length, 1, "司会の発言が積まれていない");
+      eq(human[0].round, 1);
+      ok(human[0].index < 0, "AIのターン位置と衝突しない負数のはず");
+      ok(seen[0].includes("【司会からの指示・質問】") && seen[0].includes("費用の観点を必ず入れてください"),
+        "1体目の発言に司会の一言が渡っていない");
+      eq(r.session.turns.filter((t) => t.agentId !== "human").length, 2, "AIの発言数が変わった");
+    });
+
+    await atest("E-35b 一言が空なら司会の発言は積まれない", async () => {
+      const { engine, cfg } = setup({ n: 2, config: { rounds: 1, enableSummaryRound: false }, respond: okText });
+      const r = await engine.start({ topic: "議題", config: cfg, seed: 1, note: "   " });
+      eq(r.session.turns.filter((t) => t.agentId === "human").length, 0);
+    });
+
+    await atest("E-36 引き継いだ前提はセッションに載り、全員のコンテキストに入る（FR-12-04・D-077）", async () => {
+      const seen = [];
+      const { engine, cfg } = setup({
+        n: 2, config: { rounds: 1, enableSummaryRound: false },
+        respond: (a, nth, ctx) => { seen.push(ctx.user); return okText(); }
+      });
+      const premise = { fromTopic: "前の議題", question: "残った問い", answer: "前の結論。" };
+      const r = await engine.start({ topic: "残った問い", config: cfg, seed: 1, premise });
+      eq(r.session.premise.fromTopic, "前の議題", "セッションに前提が載っていない");
+      ok(seen.every((u) => u.includes("前の結論。")), "全員に前提が渡っていない");
+    });
+
+    await atest("E-36b 前提を渡さなければ null のまま", async () => {
+      const { engine, cfg } = setup({ n: 2, config: { rounds: 1, enableSummaryRound: false }, respond: okText });
+      const r = await engine.start({ topic: "議題", config: cfg, seed: 1 });
+      eq(r.session.premise, null);
+    });
+
     await atest("E-20 議題は500字で切られる（AC-A05）", async () => {
       const { engine, cfg } = setup({ config: { rounds: 1, enableSummaryRound: false }, respond: okText });
       const r = await engine.start({ topic: "あ".repeat(600), config: cfg, seed: 1 });

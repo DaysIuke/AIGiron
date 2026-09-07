@@ -66,6 +66,9 @@ export function createSession({ topic, config, seed, now }) {
     votes: null,
     issues: null,
     synthesis: null,      // FR-08-09: 議長による統合（D-070）
+    // FR-12-04（D-077）: 前の議論から引き継いだ前提。{ fromTopic, question, answer } か null。
+    //   結論タブの「残った問い」から始めた議論が、前の結論を知らないまま一から議論するのを防ぐ。
+    premise: null,
     contextShrink: 0,     // D-074: 413 で縮めた段階（0〜2）。セッションの残りに効く
     errors: []
   };
@@ -508,7 +511,10 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
     finish("stopped", "ユーザー操作により停止");
   }
 
-  async function start({ topic, config, seed }) {
+  // FR-12-04/05（D-077）: premise は前の議論からの引き継ぎ、note は開始時に司会として添える一言。
+  //   どちらも任意。note は差し込み（interject）と同じ turn として積むので、表示・保存・復元・
+  //   書き出し・審判の扱い（採点対象外）がすべて既存の経路に乗る。
+  async function start({ topic, config, seed, premise = null, note = "" }) {
     if (!topic || !topic.trim()) throw new Error("議題が空です");
     const agents = config.agents ?? [];
     if (agents.length < 1) throw new Error("参加AIが選ばれていません");
@@ -534,9 +540,21 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
       a.status = "idle"; a.failures = 0; a.retries = 0; a.transientRetries = 0; a.emptyRetries = 0;
       a.rateWaitTotal = 0; a.tokenBoost = 1;
     }
+    s.premise = premise ?? null;
     state.session = s;
     finishReason = null;
     emit("session:started", s);
+    if (s.premise) {
+      log("INFO", "前の議論「" + s.premise.fromTopic + "」の結論を前提として引き継ぎます");
+    }
+    // 開始時の一言。runLoop より前に積むので、1体目の発言から参照される。
+    const seedNote = String(note ?? "").trim().slice(0, 2000);
+    if (seedNote) {
+      const turn = makeModeratorTurn(s, seedNote, 1);
+      s.turns.push(turn);
+      emit("turn:committed", turn);
+      log("INFO", "司会の一言を添えました。最初の発言から参照されます");
+    }
     log("INFO", "議論を開始します（推定 " + est + " リクエスト・シード " + s.seed + "）");
     // D-074: 無料枠は TPM で効く。1回の要求量が大きい設定は、進むほど確実に 429/413 に当たる。
     //   画面の推定表示は見落とされるので、開始時のログにも出す。
@@ -603,6 +621,16 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
 
   function setSummarizer(s) { summarizerRef = s; }
 
+  // 司会（人間）の発言を1件作る。開始時の一言（FR-12-05）と実行後の差し込み（FR-05-07）で共用する。
+  function makeModeratorTurn(s, text, round) {
+    const nth = s.turns.filter((x) => x.agentId === HUMAN_ID && x.round === round).length;
+    return {
+      round, index: -1 - nth, agentId: HUMAN_ID, role: "moderator",
+      text, chars: text.length, truncated: false,
+      tokensIn: null, tokensOut: null, elapsedMs: null, at: clock.now()
+    };
+  }
+
   // FR-05-07（D-070）: 人間が司会として議論に差し込む。一時停止中か終了後にだけ受け付ける
   //   （進行中に積むと、いま作っているコンテキストと保存点の整合が崩れる）。
   //   発言（turn）として積むので、コンテキスト・保存・復元・書き出し・画面が既存の経路に乗る。
@@ -615,12 +643,7 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
     // 終了後（cursor が最終ラウンドを越えている）は最後の通常ラウンドに置く。
     // そうしないと追加ラウンド（extend）のコンテキスト範囲から外れて誰にも読まれない。
     const round = Math.max(1, Math.min(s.cursor.round, s.config.rounds));
-    const nth = s.turns.filter((x) => x.agentId === HUMAN_ID && x.round === round).length;
-    const turn = {
-      round, index: -1 - nth, agentId: HUMAN_ID, role: "moderator",
-      text: t, chars: t.length, truncated: false,
-      tokensIn: null, tokensOut: null, elapsedMs: null, at: clock.now()
-    };
+    const turn = makeModeratorTurn(s, t, round);
     s.turns.push(turn);
     s.updatedAt = turn.at;
     emit("turn:committed", turn);

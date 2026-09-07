@@ -8,7 +8,7 @@ import { mountIssues } from "../js/ui/issues.js";
 import { mountSynthesis } from "../js/ui/synthesis.js";
 import { bindModal } from "../js/ui/modal.js";
 import { el } from "../js/ui/dom.js";
-import { state, emit, resetState } from "../js/state.js";
+import { state, emit, on, resetState } from "../js/state.js";
 import { DEFAULTS, makeAgent } from "../js/config.js";
 
 function session(extra = {}) {
@@ -133,6 +133,24 @@ export function run() {
     eq(root.querySelector(".synth-answer-text").textContent, "結論です。");
     eq(root.querySelectorAll(".synth-list").length, 3, "空の節（残った問い）まで出ている");
     ok(root.textContent.includes("ベータ: 独自の指摘"), "1体だけの指摘に名前が付いていない");
+  });
+
+  test("SY-4 残った問いから次の議論を始められる（FR-12-04・D-077）", () => {
+    const root = el("div");
+    const s = session({ synthesis: {
+      answer: "評価軸を先に決めるべきである。", consensus: [], disagreements: [], unique: [],
+      openQuestions: ["費用は誰が負担するか", "誰が評価軸を決めるか"]
+    } });
+    show(root, mountSynthesis, s);
+    const buttons = [...root.querySelectorAll(".synth-next")];
+    eq(buttons.length, 2, "残った問いごとにボタンが出ていない");
+
+    let payload = null;
+    on("topic:carryover", (p) => { payload = p; });
+    buttons[0].click();
+    eq(payload.topic, "費用は誰が負担するか", "問いが議題として渡っていない");
+    eq(payload.premise.fromTopic, "議題", "前の議題が渡っていない");
+    eq(payload.premise.answer, "評価軸を先に決めるべきである。", "前の結論が渡っていない");
   });
 
   test("SY-3 結論が無ければ案内だけ出る", () => {

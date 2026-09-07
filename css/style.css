@@ -194,6 +194,9 @@ input[type="number"] { width: 72px; }
 .turn-name.turn-human { color: var(--accent); }
 #moderator-row { border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 4px; }
 #mod-text { min-width: 240px; }
+#carryover { color: var(--accent); }
+.synth-q { display: block; }
+.synth-next { margin-top: 4px; }
 
 /* --- 発言カード --- */
 .topic-card {

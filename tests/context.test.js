@@ -176,6 +176,32 @@ export function run() {
     ok(b2.length < b1.length, "縮小2のほうが短くなっていない");
   });
 
+  test("C-22 引き継いだ前提は議題の直後に渡る（FR-12-04・D-077）", () => {
+    const s = makeSession();
+    s.premise = { fromTopic: "AIの評価はどうあるべきか", question: "費用は誰が持つか",
+                  answer: "評価軸を先に決めるべきである。" };
+    const { user } = buildContext(s, s.config.agents[0], 1, "propose");
+    ok(user.includes("【前の議論からの引き継ぎ】"), "前提のブロックが無い");
+    ok(user.includes("前の議題: AIの評価はどうあるべきか"), "前の議題が無い");
+    ok(user.includes("前の結論: 評価軸を先に決めるべきである。"), "前の結論が無い");
+    ok(user.indexOf("【議題】") < user.indexOf("【前の議論からの引き継ぎ】"), "議題より前に出ている");
+    ok(user.indexOf("【前の議論からの引き継ぎ】") < user.indexOf("【今回あなたがすること】"), "指示より後ろにある");
+  });
+
+  test("C-22b 前提が無ければ何も出さない", () => {
+    const s = makeSession();
+    const { user } = buildContext(s, s.config.agents[0], 1, "propose");
+    ok(!user.includes("【前の議論からの引き継ぎ】"), "前提が無いのにブロックが出ている");
+  });
+
+  test("C-22c 縮小中は前提も短くする（D-074/D-075 と同じ扱い）", () => {
+    const s = makeSession();
+    s.premise = { fromTopic: "前の議題", question: "q", answer: "あ".repeat(500) };
+    const len = (sh) => { s.contextShrink = sh; return buildContext(s, s.config.agents[0], 1, "propose").user.length; };
+    const l0 = len(0), l1 = len(1), l2 = len(2);
+    ok(l1 < l0 && l2 < l1, "縮小しても前提が短くなっていない: " + [l0, l1, l2].join(","));
+  });
+
   test("C-11 persona があれば system に注入される（FR-03-09 ソロ議論モード）", () => {
     const s = makeSession();
     s.config.agents[0].persona = "懐疑派。リスクと反例を重視する。";

@@ -78,6 +78,18 @@ export function buildContext(session, agent, round, role) {
 
   const parts = [`【議題】${session.topic}`];
 
+  // FR-12-04（D-077）: 前の議論から引き継いだ前提。議題の直後に置く。
+  //   これが無いと、「残った問い」から始めた議論が前の結論を知らずに一から始まる。
+  const pr = session.premise;
+  if (pr && (pr.answer || pr.fromTopic)) {
+    const cap = shrink >= 2 ? 120 : shrink >= 1 ? 200 : 400;
+    const lines = [];
+    if (pr.fromTopic) lines.push(`前の議題: ${truncate(pr.fromTopic, 120)}`);
+    if (pr.answer) lines.push(`前の結論: ${truncate(pr.answer, cap)}`);
+    lines.push("今回の議題は、その議論で残った問いです。前の結論を踏まえたうえで論じてください。");
+    parts.push("【前の議論からの引き継ぎ】\n" + lines.join("\n"));
+  }
+
   // 直近より前のラウンドは要約で渡す
   const summarized = [];
   for (let r = 1; r < recentFrom; r++) {

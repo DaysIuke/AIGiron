@@ -42,6 +42,9 @@ export function mountControls(engine, onOpenSettings) {
   const btnInterject = $("#btn-interject");
   const extendN = $("#extend-n");
   const btnExtend = $("#btn-extend");
+  const carryover = $("#carryover");
+  // FR-12-04（D-077）: 結論タブの「残った問い」から引き継いだ前提。開始時に engine へ渡す。
+  let pendingPremise = null;
 
   function refreshEstimate() {
     // 実行中は同じ行に「実測 N req」を出しているので、推定で上書きしない
@@ -107,6 +110,23 @@ export function mountControls(engine, onOpenSettings) {
     const has = Boolean(state.session);
     btnInterject.disabled = !(has && (st === "paused" || st === "done" || st === "stopped"));
     btnExtend.disabled = !(has && (st === "done" || st === "stopped"));
+    // FR-12-05（D-077）: 開始前は「最初の一言」、実行後は「差し込み」。同じ欄を状態で使い分ける。
+    //   引き継ぎを控えているときは**次の議論の一言**に確定させる。ここを曖昧にすると、
+    //   終了済みセッションでは「差し込む」も押せてしまい、書いた言葉が前の議論に入る。
+    if (pendingPremise) btnInterject.disabled = true;
+    const opening = pendingPremise || btnInterject.disabled;
+    modText.placeholder = opening
+      ? "最初に司会として添える一言（任意）。開始すると全AIに渡ります"
+      : "一時停止中か終了後に、質問や指示を差し込めます";
+  }
+
+  function setCarryover(p) {
+    pendingPremise = p;
+    if (carryover) {
+      carryover.hidden = !p;
+      carryover.textContent = p ? "「" + p.fromTopic + "」の結論を引き継ぎます" : "";
+    }
+    setButtons(state.status);   // 司会欄の意味（一言 / 差し込み）を確定させる
   }
 
   const STATUS_LABEL = {
@@ -141,8 +161,15 @@ export function mountControls(engine, onOpenSettings) {
     //   その await の前に記録する（一時停止・停止で終わっても「使った議題」として残す）。
     if (topic.value.trim()) { pushTopic(topic.value.trim()); renderHelpers(); }
 
+    // FR-12-04/05（D-077）: 引き継ぎと開始時の一言は、この開始だけで使い切る。
+    //   先に取り出して消しておかないと、次の議論にも黙って付いていく。
+    const premise = pendingPremise;
+    const note = modText.value;
+    setCarryover(null);
+    modText.value = "";
+
     try {
-      await engine.start({ topic: topic.value, config: cfg });
+      await engine.start({ topic: topic.value, config: cfg, premise, note });
     } catch (e) {
       setStatusText("error", e.message);
     }
@@ -166,6 +193,15 @@ export function mountControls(engine, onOpenSettings) {
     Promise.resolve(engine.resume()).catch((e) => setStatusText("error", e.message));
   });
   btnStop.addEventListener("click", () => engine.stop());
+
+  // FR-12-04（D-077）: 結論タブの「この問いで議論する」から。議題を入れて前提を控え、
+  //   コメント欄へ誘導する。開始そのものは押させる（設定・キー・見積りの確認を素通りさせない）。
+  on("topic:carryover", ({ topic: q, premise }) => {
+    applyTopic(q);
+    setCarryover(premise);
+    setStatusText("idle", "議題を入れました。コメントを添えて「開始」を押してください");
+    modText.focus();
+  });
 
   on("engine:status", (st) => { setButtons(st); setStatusText(st); });
   on("wait:tick", (sec) => setStatusText("waiting", "あと " + sec + " 秒"));
