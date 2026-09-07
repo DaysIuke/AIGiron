@@ -449,13 +449,15 @@ export async function runEvaluation({ session, judgeCfg, callProvider, budget, g
   // D-036: 採点と論点抽出を並列に投げる。直列だとタイムアウトが積み上がり、
   //   応答の無いモデルを指定すると「動いていないように見える」時間が2倍（最大180秒）になる。
   // D-070: 議長の統合（FR-08-09）も同じ並列に乗せる。任意（judgeCfg.synthesize）。
-  {
-    // 打ち切りが起きるなら採点の前に一度だけ知らせる（何を読んで採点したかを利用者が把握できるように）
-    const probe = anonymousTranscript(session, map, JUDGE_TRANSCRIPT_CHARS);
-    if (probe.truncated) {
-      onLog("審判に渡す議論が長いため、各発言を " + probe.perTurnChars +
-        " 字ずつに揃えて打ち切ります（全員同じ長さ。文字数と得点の相関は元の長さで計算します）");
-    }
+  // 打ち切りが起きるなら採点の前に一度だけ知らせ、判定にも記録する。
+  // D-076: 記録が要るのは、打ち切ると **FR-08-08 の長さ／得点相関が意味を失う**ため。
+  //   審判が読んだ発言はすべて同じ長さなので、B010（冗長性バイアス）の検出は
+  //   原理的にできなくなる。相関が 0 に近くても「審判は長さに釣られていない」とは言えない。
+  const cut = anonymousTranscript(session, map, JUDGE_TRANSCRIPT_CHARS);
+  if (cut.truncated) {
+    onLog("審判に渡す議論が長いため、各発言を " + cut.perTurnChars +
+      " 字ずつに揃えて打ち切ります（全員同じ長さ）。この場合、文字数と得点の相関は" +
+      "冗長性バイアスの検出には使えません");
   }
   const jobs = [
     runOne("採点", (cap) => judgePrompt(session, map, cap), JUDGE_SCHEMA),
@@ -517,6 +519,11 @@ export async function runEvaluation({ session, judgeCfg, callProvider, budget, g
     } catch (e) {
       out.judgement.stability = { checked: false, reason: String(e?.message ?? e) };
     }
+  }
+
+  // FR-08-08 の表示側が「この相関は解釈できない」と言えるようにする（D-076）
+  if (out.judgement && !out.judgement.raw && cut.truncated) {
+    out.judgement.transcriptTruncated = { perTurnChars: cut.perTurnChars };
   }
 
   out.swappedModel = swappedModel;

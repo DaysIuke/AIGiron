@@ -231,6 +231,25 @@ export async function run() {
     ok(out.issues && !out.issues.raw, "論点抽出まで巻き添えになっている");
   });
 
+  await atest("JD-32 打ち切って採点したら judgement にその事実を残す（相関の解釈を止めるため・D-076）", async () => {
+    const long = longSession(20, 600);
+    const short = makeSession();
+    const callProvider = async (agent, ctx) =>
+      ctx.user.includes("審判")
+        ? { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+            { participant: "参加者B", score: 6, reason: "r" }], winner: "参加者B", summary: "s" }) }
+        : { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    const cfg = { provider: "mock", model: "mock-fast" };
+    const base = { callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {} };
+
+    const cutOut = await runEvaluation({ session: long, judgeCfg: cfg, ...base });
+    ok(cutOut.judgement.transcriptTruncated, "打ち切ったのに記録されていない");
+    ok(cutOut.judgement.transcriptTruncated.perTurnChars > 0, "1発言あたりの字数が無い");
+
+    const fullOut = await runEvaluation({ session: short, judgeCfg: cfg, ...base });
+    eq(fullOut.judgement.transcriptTruncated, undefined, "打ち切っていないのに記録された");
+  });
+
   await atest("JD-31 審判の 413 は渡す議論を半分に切って張り直す", async () => {
     const s = longSession(20, 600);
     const lens = [];

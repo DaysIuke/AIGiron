@@ -99,6 +99,10 @@ export function mountVerdict(root) {
       text: "採点は匿名化した発言に対して行われます（名前・モデルへの先入観を断つため）" }));
 
     // FR-08-08: 発言の長さと得点の相関（B010 冗長性バイアスの可視化）
+    // D-076: 打ち切って採点した場合、審判が読んだ発言はすべて同じ長さなので、
+    //   この相関は「審判が長さに釣られたか」を測っていない（B010 の検出は成立しない）。
+    //   元の長さで計算した値をそのまま出すと、0 に近い値を「バイアスなし」と読ませてしまう。
+    const truncated = judgement.transcriptTruncated ?? null;
     const corr = state.session ? lengthScoreCorrelation(state.session) : null;
     if (corr) {
       root.appendChild(el("h3", { class: "verdict-subhead", text: "文字数と得点の相関" }));
@@ -112,10 +116,19 @@ export function mountVerdict(root) {
       }
       root.appendChild(corrTable);
       const rText = corr.r === null ? "算出できません（値にばらつきがありません）"
-        : corr.r.toFixed(2) + (Math.abs(corr.r) >= 0.5
-            ? "（長さと得点に相関が見られます。冗長性バイアスの疑いがあります・B010）"
-            : "（長さと得点に強い相関は見られません）");
+        : corr.r.toFixed(2) + (truncated
+            ? "（**この値は冗長性バイアスの判定に使えません**）"
+            : Math.abs(corr.r) >= 0.5
+              ? "（長さと得点に相関が見られます。冗長性バイアスの疑いがあります・B010）"
+              : "（長さと得点に強い相関は見られません）");
       root.appendChild(el("p", { class: "field-hint", text: "相関係数: " + rText }));
+      if (truncated) {
+        root.appendChild(el("p", { class: "field-hint judge-warn", text:
+          "議論が長かったため、審判には各発言を " + truncated.perTurnChars +
+          " 字ずつに揃えて渡しています。審判が読んだ発言はすべて同じ長さなので、" +
+          "この相関は「審判が長さに釣られたか」を測っていません（B010 の検出は成立しません）。" +
+          "上の文字数は打ち切る前の元の長さです" }));
+      }
     }
 
     renderVote();

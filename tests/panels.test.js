@@ -54,6 +54,46 @@ export function run() {
     ok(root.querySelector(".verdict-winner"), "勝者が印付けされていない");
   });
 
+  test("VP-4 打ち切って採点した場合、相関は解釈できないと明示する（D-076）", () => {
+    const root = el("div");
+    const s = session({
+      judgement: {
+        scores: [{ agentId: "a0", participant: "参加者A", score: 8, reason: "r" },
+                 { agentId: "a1", participant: "参加者B", score: 4, reason: "r" }],
+        winnerAgentId: "a0", summary: "講評",
+        transcriptTruncated: { perTurnChars: 280 }
+      },
+      turns: [
+        { round: 1, index: 0, agentId: "a0", role: "propose", text: "長い", chars: 900 },
+        { round: 1, index: 1, agentId: "a1", role: "critique", text: "短い", chars: 100 }
+      ]
+    });
+    show(root, mountVerdict, s);
+    ok(root.textContent.includes("この相関は「審判が長さに釣られたか」を測っていません"),
+      "打ち切りの注意書きが出ていない");
+    ok(root.textContent.includes("280 字ずつ"), "1発言あたりの字数が出ていない");
+    ok(!root.textContent.includes("冗長性バイアスの疑いがあります"),
+      "打ち切ったのにバイアスありと断定している");
+  });
+
+  test("VP-4b 打ち切っていなければ従来どおりの解釈を出す", () => {
+    const root = el("div");
+    const s = session({
+      judgement: {
+        scores: [{ agentId: "a0", participant: "参加者A", score: 8, reason: "r" },
+                 { agentId: "a1", participant: "参加者B", score: 4, reason: "r" }],
+        winnerAgentId: "a0", summary: "講評"
+      },
+      turns: [
+        { round: 1, index: 0, agentId: "a0", role: "propose", text: "長い", chars: 900 },
+        { round: 1, index: 1, agentId: "a1", role: "critique", text: "短い", chars: 100 }
+      ]
+    });
+    show(root, mountVerdict, s);
+    ok(!root.textContent.includes("測っていません"), "打ち切っていないのに注意書きが出ている");
+    ok(root.textContent.includes("相関係数:"), "相関が出ていない");
+  });
+
   test("VP-3 raw だけの判定はこれまでどおり原文で出る（AC-A15）", () => {
     const root = el("div");
     show(root, mountVerdict, session({ judgement: { raw: "壊れたJSONの原文" } }));
