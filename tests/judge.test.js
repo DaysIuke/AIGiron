@@ -238,6 +238,40 @@ export async function run() {
     eq(out.judgement.winnerAgentId, "a1");
   });
 
+  await atest("JD-35 呼び出しが失敗したら null ではなく failed として残す（D-081）", async () => {
+    // null のままだと画面が「まだ結論がありません。設定で有効にしてください」と出す。
+    // 有効にしてあるのにそう言われるので、利用者は原因に辿り着けない（実際に踏んだ）。
+    const s = makeSession();
+    const callProvider = async (agent, ctx) => {
+      if (ctx.user.includes("議長")) throw { kind: "server", message: "落ちた" };
+      return ctx.user.includes("審判")
+        ? { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+            { participant: "参加者B", score: 5, reason: "r" }], winner: null, summary: "s" }) }
+        : { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast", synthesize: true },
+      callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {}
+    });
+    ok(out.synthesis && out.synthesis.failed, "失敗が null のままになっている");
+    ok(out.synthesis.failed.includes("統合に失敗"), "何が失敗したか分からない: " + out.synthesis.failed);
+    ok(out.synthesis.failed.includes("落ちた"), "理由が入っていない");
+    ok(Array.isArray(out.judgement.scores), "採点まで巻き添えになっている");
+    ok(out.error && out.error.includes("統合に失敗"), "error にも出るべき");
+  });
+
+  await atest("JD-35b 採点・論点が失敗したときも failed として残す", async () => {
+    const s = makeSession();
+    const callProvider = async () => { throw { kind: "server", message: "全部落ちた" }; };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast", synthesize: true },
+      callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {}
+    });
+    ok(out.judgement?.failed?.includes("採点に失敗"), "採点の失敗が残っていない");
+    ok(out.issues?.failed?.includes("論点抽出に失敗"), "論点の失敗が残っていない");
+    ok(out.synthesis?.failed?.includes("統合に失敗"), "統合の失敗が残っていない");
+  });
+
   await atest("JD-30b 待機が上限を超えたら諦める。他の呼び出しは巻き添えにしない", async () => {
     const s = makeSession();
     const callProvider = async (agent, ctx) => {

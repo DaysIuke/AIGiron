@@ -22,6 +22,15 @@ export function mountIssues(root) {
         text: "まだ論点がありません。設定で審判を有効にして議論を完走させてください。" }));
       return;
     }
+    // D-081: 失敗を「無効」と混同させない
+    if (issues.failed) {
+      root.appendChild(el("p", { class: "placeholder judge-warn", text: "論点を抽出できませんでした。" }));
+      root.appendChild(el("pre", { class: "verdict-raw", text: issues.failed }));
+      root.appendChild(el("p", { class: "field-hint", text:
+        "もう一度議論を完走させるか、設定で審判のモデルを変えてください。" +
+        "レート制限が原因なら、少し時間を置くと通ることがあります" }));
+      return;
+    }
     // verdict.js と同じ理由で、issues が配列でないものも原文表示へ落とす。
     // インポート経路（FR-07-06）は issues の形を検証していない。
     const raw = issues.raw ??

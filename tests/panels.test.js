@@ -190,6 +190,31 @@ export function run() {
     eq(payload.premise.answer, "評価軸を先に決めるべきである。", "前の結論が渡っていない");
   });
 
+  test("SY-5 統合が失敗した場合は「有効にしてください」と言わない（D-081）", () => {
+    const root = el("div");
+    show(root, mountSynthesis, session({ synthesis: { failed: "統合に失敗: レート制限" } }));
+    ok(root.textContent.includes("統合できませんでした"), "失敗として描いていない");
+    ok(root.textContent.includes("レート制限"), "理由が出ていない");
+    ok(!root.textContent.includes("有効にして"), "有効なのに「有効にしてください」と言っている");
+  });
+
+  test("IP-3 論点抽出が失敗した場合も同様（D-081）", () => {
+    const root = el("div");
+    show(root, mountIssues, session({ issues: { failed: "論点抽出に失敗: タイムアウト" } }));
+    ok(root.textContent.includes("論点を抽出できませんでした"), "失敗として描いていない");
+    ok(root.textContent.includes("タイムアウト"), "理由が出ていない");
+    ok(!root.textContent.includes("有効にして"), "有効なのに「有効にしてください」と言っている");
+  });
+
+  test("VP-6 採点が失敗しても投票はできる（D-081）", () => {
+    const root = el("div");
+    show(root, mountVerdict, session({ judgement: { failed: "採点に失敗: 500" } }));
+    ok(root.textContent.includes("採点できませんでした"), "失敗として描いていない");
+    ok(root.textContent.includes("500"), "理由が出ていない");
+    ok(!root.textContent.includes("設定で審判を有効に"), "有効なのに「有効にしてください」と言っている");
+    eq(root.querySelectorAll(".vote-win").length, 2, "投票UIが出ていない");
+  });
+
   test("SY-3 結論が無ければ案内だけ出る", () => {
     const root = el("div");
     show(root, mountSynthesis, session({}));

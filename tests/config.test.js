@@ -1,7 +1,7 @@
 // tests/config.test.js — config.js の純粋関数（推定リクエスト数まわり）。
 
 import { group, test, eq, ok } from "./runner.js";
-import { estimateRequests, DEFAULTS, expandSolo, makeAgent, DEFAULT_PERSONAS } from "../js/config.js";
+import { estimateRequests, DEFAULTS, expandSolo, makeAgent, DEFAULT_PERSONAS, mergeDebate } from "../js/config.js";
 
 function cfg(over = {}) {
   return { ...DEFAULTS, agents: [1, 2, 3], rounds: 3, enableSummaryRound: true, ...over };
@@ -9,6 +9,36 @@ function cfg(over = {}) {
 
 export function run() {
   group("config.js estimateRequests");
+
+  test("Q-12 入れ子（judge/solo）の既定値が補われる（D-081）", () => {
+    // 実際に踏んだ: synthesize を後から足したため、それ以前に保存された judge には
+    // このキーが無い。浅いマージだと judge ごと置き換わって undefined になり、
+    // 設定画面は既定の「する」を表示しているのにエンジンは統合を実行しなかった。
+    const saved = { rounds: 5, judge: { enabled: true, provider: "groq", model: "m1", checkStability: false } };
+    const m = mergeDebate(saved);
+    eq(m.rounds, 5, "保存値が優先されるべき");
+    eq(m.judge.enabled, true, "保存値が消えてはいけない");
+    eq(m.judge.provider, "groq");
+    eq(m.judge.synthesize, DEFAULTS.judge.synthesize, "後から足したキーが既定で補われていない");
+    eq(m.solo.enabled, DEFAULTS.solo.enabled, "solo も補われるべき");
+    eq(m.solo.count, DEFAULTS.solo.count);
+  });
+
+  test("Q-12b 保存値が無い・壊れていても既定に落ちる", () => {
+    eq(mergeDebate(undefined).judge.synthesize, DEFAULTS.judge.synthesize);
+    eq(mergeDebate(null).rounds, DEFAULTS.rounds);
+    // judge が配列や文字列でも既定に落ちる（壊れた保存値・手で編集した値）
+    eq(mergeDebate({ judge: "壊れている" }).judge.enabled, DEFAULTS.judge.enabled);
+    eq(mergeDebate({ judge: ["x"] }).judge.provider, DEFAULTS.judge.provider);
+  });
+
+  test("Q-12c 見積りは補われた judge を見て統合の分を数える（D-081）", () => {
+    // synthesize キーが無い保存値でも、マージ後は既定ON なので +1 される
+    const saved = { judge: { enabled: true, provider: "mock", model: "mock-fast", checkStability: false } };
+    const m = mergeDebate(saved);
+    eq(estimateRequests({ ...m, agents: [1, 2, 3], rounds: 3, enableSummaryRound: true }), 3 * 4 + 3,
+      "採点2＋統合1 が数えられていない");
+  });
 
   test("Q-1 審判なしは 参加数 × (ラウンド数＋総括) だけ", () => {
     eq(estimateRequests(cfg({ judge: { enabled: false } })), 3 * 4);

@@ -136,6 +136,24 @@ export function estimateTokensPerRequest(cfg) {
   return promptTokens + outputTokens;
 }
 
+// D-081: 保存済み設定と既定値のマージ。**入れ子（judge / solo）は浅いマージだと既定が補われない**。
+//   実際に踏んだ: `synthesize` を後から足したため、それ以前に保存された `judge` には
+//   このキーが無い。`{...DEFAULTS, ...saved}` では `judge` ごと置き換わるので
+//   `synthesize` が undefined になり、設定画面は既定の「する」を表示しているのに
+//   エンジンは統合を実行しない、という食い違いが起きた。
+//   新しいキーを DEFAULTS に足すたびに同じ問題が起きるので、ここで一律に補う。
+const NESTED_KEYS = ["judge", "solo"];
+
+export function mergeDebate(saved) {
+  const out = { ...DEFAULTS, ...(saved ?? {}) };
+  for (const k of NESTED_KEYS) {
+    const d = DEFAULTS[k];
+    const v = saved?.[k];
+    out[k] = { ...d, ...(v && typeof v === "object" && !Array.isArray(v) ? v : {}) };
+  }
+  return out;
+}
+
 // 無料枠でも通りやすい設定（D-021）
 export const FREE_TIER_PRESET = {
   rounds: 2,

@@ -649,7 +649,12 @@ export function run() {
       const r = await engine.start({
         topic: "議題",
         config: { ...DEFAULTS, agents: ags, rounds: 1, enableSummaryRound: false, order: "fixed",
-                  requestLimit: 50, judge: { enabled: true, provider: "mock", model: "mock-fast" } },
+                  requestLimit: 50,
+                  // D-081: このテストの主題は「採点＋論点」と requestCount の算入。統合は明示的に切る。
+                  //   以前は synthesize を書かなければ undefined のまま統合が走らなかったが、それは
+                  //   入れ子の既定値が補われていなかったバグ（D-081）で、このテストはその挙動に依存していた。
+                  //   統合の検証は JD-27 が持つ。
+                  judge: { enabled: true, provider: "mock", model: "mock-fast", synthesize: false } },
         seed: 1
       });
       eq(r.status, "done");

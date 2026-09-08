@@ -3,7 +3,7 @@
 import { on, state, emit } from "../state.js";
 import { $, el, clear } from "./dom.js";
 import { PROVIDERS, DEFAULTS, defaultAgents, assignStances, estimateRequests,
-         estimateTokensPerRequest, SAMPLE_TOPICS, expandSolo } from "../config.js";
+         estimateTokensPerRequest, SAMPLE_TOPICS, expandSolo, mergeDebate } from "../config.js";
 import { loadSettings, hasKey } from "../storage/settings.js";
 import { loadTopics, pushTopic } from "../storage/topics.js";
 
@@ -11,7 +11,7 @@ const MAX_TOPIC = 500;
 
 export function currentConfig() {
   const st = loadSettings();
-  const debate = { ...DEFAULTS, ...(st.debate ?? {}) };
+  const debate = mergeDebate(st.debate);   // D-081: 入れ子の既定値も補う
   let agents = st.agents ?? defaultAgents(3, "mock");
   // FR-03-09: 参加AIが1体・ソロモードONなら、ここで複数ペルソナに展開してから
   //   通常どおりの複数エージェント構成としてエンジンに渡す（D-043）。

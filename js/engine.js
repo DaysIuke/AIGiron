@@ -5,7 +5,7 @@ import { computeOrder } from "./order.js";
 import { roleOf, proposerFor } from "./roles.js";
 import { buildContext, renderRoundPlain, truncate } from "./context.js";
 import { backoffSec } from "./errors.js";
-import { estimateRequests, estimateTokensPerRequest, DEFAULTS, HUMAN_ID } from "./config.js";
+import { estimateRequests, estimateTokensPerRequest, DEFAULTS, HUMAN_ID, mergeDebate } from "./config.js";
 import { runEvaluation, judgeBiasWarning, mockMixWarning } from "./judge.js";
 
 function deferred() {
@@ -532,7 +532,7 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
     const agents = config.agents ?? [];
     if (agents.length < 1) throw new Error("参加AIが選ばれていません");
 
-    const merged = { ...DEFAULTS, ...config };
+    const merged = mergeDebate(config);   // D-081: judge / solo の既定値も補う
     const est = estimateRequests(merged);
     if (est > merged.requestLimit) {
       throw new Error(

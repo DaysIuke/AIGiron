@@ -25,6 +25,17 @@ export function mountVerdict(root) {
       renderVote();
       return;
     }
+    // D-081: 失敗を「無効」と混同させない。投票は独立して行えるので renderVote() は必ず呼ぶ。
+    if (judgement.failed) {
+      root.appendChild(el("p", { class: "placeholder judge-warn", text: "採点できませんでした。" }));
+      root.appendChild(el("pre", { class: "verdict-raw", text: judgement.failed }));
+      root.appendChild(el("p", { class: "field-hint", text:
+        "もう一度議論を完走させるか、設定で審判のモデルを変えてください。" +
+        "レート制限が原因なら、少し時間を置くと通ることがあります" }));
+      renderVote();
+      return;
+    }
+
     // AC-A15: 構造化に失敗したら生テキストで見せる（捨てない）。
     // scores が配列でない judgement もここへ落とす。審判が作った判定は必ず配列だが、
     // インポートしたセッション（FR-07-06）は looksLikeSession() が judgement の形まで

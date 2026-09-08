@@ -497,12 +497,18 @@ export async function runEvaluation({ session, judgeCfg, callProvider, budget, g
   }
   const [scoresR, issuesR, synthR] = await Promise.allSettled(jobs);
 
+  // D-081: 失敗したときに null のままにすると、画面は「まだ結論がありません。設定で有効にして
+  //   ください」と出す。**有効にしてあるのに**そう言われるので、利用者は原因に辿り着けない
+  //   （実際に踏んだ）。失敗は失敗として残し、「無効」と区別できるようにする。
+  const failed = (r, label) => ({ failed: label + "に失敗: " + String(r?.message ?? r) });
+
   if (synthR) {
     if (synthR.status === "fulfilled") {
       const y = synthR.value;
       out.synthesis = y.ok ? deanonSynthesis(y.json, back, session) : { raw: y.raw };
     } else {
-      out.error = "統合に失敗: " + String(synthR.reason?.message ?? synthR.reason);
+      out.synthesis = failed(synthR.reason, "統合");
+      out.error = out.synthesis.failed;
     }
   }
 
@@ -510,15 +516,16 @@ export async function runEvaluation({ session, judgeCfg, callProvider, budget, g
     const j = scoresR.value;
     out.judgement = j.ok ? deanonScores(j.json, back) : { raw: j.raw };   // AC-A15: 生テキストとして残す
   } else {
-    out.error = (out.error ? out.error + " / " : "") + "採点に失敗: " + String(scoresR.reason?.message ?? scoresR.reason);
+    out.judgement = failed(scoresR.reason, "採点");
+    out.error = (out.error ? out.error + " / " : "") + out.judgement.failed;
   }
 
   if (issuesR.status === "fulfilled") {
     const i = issuesR.value;
     out.issues = i.ok ? deanonIssues(i.json, back) : { raw: i.raw };
   } else {
-    out.error = (out.error ? out.error + " / " : "") + "論点抽出に失敗: " +
-      String(issuesR.reason?.message ?? issuesR.reason);
+    out.issues = failed(issuesR.reason, "論点抽出");
+    out.error = (out.error ? out.error + " / " : "") + out.issues.failed;
   }
 
   // FR-08-07: 任意・既定OFF。審判のラベル割り当てを反転して再採点し、勝者が変わるかを

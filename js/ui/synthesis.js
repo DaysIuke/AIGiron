@@ -25,6 +25,15 @@ export function mountSynthesis(root) {
         text: "まだ結論がありません。設定の審判で「結論を統合する」を有効にして議論を完走させてください。" }));
       return;
     }
+    // D-081: 失敗を「無効」と混同させない。有効なのに「有効にしてください」と言われると原因に辿り着けない。
+    if (syn.failed) {
+      root.appendChild(el("p", { class: "placeholder judge-warn", text: "統合できませんでした。" }));
+      root.appendChild(el("pre", { class: "verdict-raw", text: syn.failed }));
+      root.appendChild(el("p", { class: "field-hint", text:
+        "もう一度議論を完走させるか、設定で審判のモデルを変えてください。" +
+        "レート制限が原因なら、少し時間を置くと通ることがあります" }));
+      return;
+    }
     // verdict.js / issues.js と同じく、壊れた形（インポート経路）も原文表示へ落とす（AC-A15）
     const raw = syn.raw ?? (typeof syn.answer === "string" ? null : JSON.stringify(syn).slice(0, 4000));
     if (raw) {
