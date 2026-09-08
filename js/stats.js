@@ -22,9 +22,22 @@ function usesMock(s) {
 }
 
 // 集計に使えるのは「構造化された採点がある」セッションだけ（raw は形が保証されない）。
-function hasScores(s) {
+export function hasScores(s) {
   const j = s?.judgement;
   return Boolean(j && !j.raw && Array.isArray(j.scores) && j.scores.length);
+}
+
+// D-083: 採点が無い理由を分ける。**理由を出さないと「0 セッション」としか見えない**。
+//   実際に踏んだ: 審判を設定して回したのにレート制限で採点が落ち、集計に何も入らず、
+//   利用者には原因が分からなかった（D-082）。何件がどの理由で外れたかを必ず出す。
+function excludeReason(s) {
+  if (hasScores(s)) return null;
+  const j = s?.judgement;
+  if (j?.failed) return "failed";                      // 審判は動いたが失敗した
+  if (j?.raw) return "unstructured";                   // 応答を構造化できなかった
+  const jc = s?.config?.judge;
+  if (!jc?.enabled || !jc.provider || !jc.model) return "noJudge";   // 審判を設定していない
+  return "other";
 }
 
 function rate(n, d) { return d > 0 ? n / d : null; }
@@ -34,6 +47,13 @@ export function aggregate(sessions) {
   const mockSkipped = all.filter(usesMock).length;
   const real = all.filter((s) => s && !usesMock(s));
   const judged = real.filter(hasScores);
+
+  // D-083: 採点が無いセッションの内訳。母数から消えた理由を画面に出すために数える。
+  const excluded = { failed: 0, unstructured: 0, noJudge: 0, other: 0 };
+  for (const s of real) {
+    const r = excludeReason(s);
+    if (r) excluded[r] += 1;
+  }
 
   const models = new Map();   // key → 集計行
   const judges = new Map();
@@ -127,6 +147,7 @@ export function aggregate(sessions) {
   return {
     total: all.length,
     mockSkipped,
+    excluded,
     judged: judged.length,
     voted: judged.filter((s) => s.votes?.winnerAgentId).length,
     reliable: judged.length >= MIN_RELIABLE,

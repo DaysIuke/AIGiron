@@ -569,6 +569,15 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
       log("INFO", "司会の一言を添えました。最初の発言から参照されます");
     }
     log("INFO", "議論を開始します（推定 " + est + " リクエスト・シード " + s.seed + "）");
+    // D-084: 推定は再試行を含まない（IMPL §3.3）。実測では推定11に対し17消費した
+    //   （審判のレート制限による張り直しと、構造化のやり直しが積み上がる）。
+    //   上限ぎりぎりだと討論は通っても**審判だけが上限で落ちる**。先に言っておく。
+    if (est * 1.5 > merged.requestLimit) {
+      log("WARN", "推定 " + est + " リクエストに対し、セッション上限は " + merged.requestLimit + " です。" +
+        "推定には再試行（レート制限の待機・構造化のやり直し）が含まれません。実測では推定の1.5倍まで" +
+        "増えたことがあり、上限に達すると討論は通っても審判だけが落ちます。" +
+        "上限を " + Math.ceil(est * 1.5) + " 以上にしておくと安全です");
+    }
     // D-074: 無料枠は TPM で効く。1回の要求量が大きい設定は、進むほど確実に 429/413 に当たる。
     //   画面の推定表示は見落とされるので、開始時のログにも出す。
     const tok = estimateTokensPerRequest({ ...merged, topicLength: s.topic.length });

@@ -145,6 +145,34 @@ export function run() {
     eq(aggregate(enough).reliable, true);
   });
 
+  test("ST-A12 採点が無い回の理由を数える（D-083）", () => {
+    // 理由を出さないと「0 セッション」としか見えない。実際に審判ありで回したのに
+    // レート制限で採点が落ち、集計に何も入らず原因が分からなかった（D-082）。
+    const agents = [A("a0", "groq", "m1"), A("a1", "gemini", "m2")];
+    const j = { enabled: true, provider: "groq", model: "m1" };
+    const base = { id: "x", topic: "t", status: "done", cursor: { round: 1, index: 0 }, turns: [] };
+    const a = aggregate([
+      sess({ id: "1", agents, judge: j, winner: "a0" }),                       // 集計に入る
+      { ...base, id: "2", config: { agents, judge: j }, judgement: { failed: "採点に失敗: 429" } },
+      { ...base, id: "3", config: { agents, judge: j }, judgement: { raw: "JSONではない" } },
+      { ...base, id: "4", config: { agents, judge: { enabled: false } }, judgement: null },
+      { ...base, id: "5", config: { agents, judge: j }, judgement: null }      // 途中停止など
+    ]);
+    eq(a.judged, 1);
+    eq(a.excluded.failed, 1, "失敗した回が数えられていない");
+    eq(a.excluded.unstructured, 1, "構造化できなかった回が数えられていない");
+    eq(a.excluded.noJudge, 1, "審判未設定の回が数えられていない");
+    eq(a.excluded.other, 1, "その他の回が数えられていない");
+  });
+
+  test("ST-A12b 全部集計に入るなら除外はすべて0", () => {
+    const agents = [A("a0", "groq", "m1")];
+    const j = { enabled: true, provider: "groq", model: "m1" };
+    const a = aggregate([sess({ id: "1", agents, judge: j }), sess({ id: "2", agents, judge: j })]);
+    eq(a.judged, 2);
+    eq(a.excluded, { failed: 0, unstructured: 0, noJudge: 0, other: 0 });
+  });
+
   test("ST-A11 modelKey はプロバイダとモデルの組で作る", () => {
     eq(modelKey({ provider: "groq", model: "m1" }), "groq / m1");
     eq(modelKey({}), "? / ?", "欠けていても壊れない");

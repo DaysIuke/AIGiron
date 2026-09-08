@@ -65,6 +65,32 @@ export function mountSessions(root, openButton, { storage, engine }) {
     return table;
   }
 
+  // D-083: 母数から外れた件数と理由。理由を出さないと「0 セッション」としか見えない。
+  function excludeNote(a) {
+    const wrap = el("div");
+    const lines = [];
+    if (a.mockSkipped) {
+      lines.push("モックが混ざる " + a.mockSkipped + " 件（実モデルの傾向を汚さないため）");
+    }
+    if (a.excluded.failed) {
+      lines.push("審判の呼び出しが失敗した " + a.excluded.failed +
+        " 件（レート制限などが原因。進行ログに理由が出ています）");
+    }
+    if (a.excluded.unstructured) {
+      lines.push("審判の応答を構造化できなかった " + a.excluded.unstructured +
+        " 件（審判のモデルを変えると通ることがあります）");
+    }
+    if (a.excluded.noJudge) {
+      lines.push("審判を設定していない " + a.excluded.noJudge + " 件");
+    }
+    if (a.excluded.other) {
+      lines.push("採点が残っていない " + a.excluded.other + " 件（途中で停止した回など）");
+    }
+    if (!lines.length) return wrap;
+    wrap.appendChild(el("p", { class: "field-hint", text: "集計から外れた回: " + lines.join(" / ") }));
+    return wrap;
+  }
+
   function renderStats(list) {
     const box = el("div", { class: "stats-box" });
     const a = aggregate(list);
@@ -80,8 +106,8 @@ export function mountSessions(root, openButton, { storage, engine }) {
     if (!a.judged) {
       box.appendChild(el("p", { class: "field-hint", text:
         "採点まで終えたセッションがまだありません。設定で審判を有効にして議論を完走させると、" +
-        "ここにモデル別の傾向が溜まります" +
-        (a.mockSkipped ? "（モックだけのセッション " + a.mockSkipped + " 件は集計から除いています）" : "") }));
+        "ここにモデル別の傾向が溜まります" }));
+      box.appendChild(excludeNote(a));
       return box;
     }
 
@@ -90,10 +116,7 @@ export function mountSessions(root, openButton, { storage, engine }) {
         "採点済み " + a.judged + " セッション。" + MIN_RELIABLE +
         " 件未満では、割合を実力として読めません。傾向として見るには回数が要ります（B001 は3,000票で測っています）" }));
     }
-    if (a.mockSkipped) {
-      box.appendChild(el("p", { class: "field-hint", text:
-        "モックが混ざるセッション " + a.mockSkipped + " 件は集計から除いています（実モデルの傾向を汚さないため）" }));
-    }
+    box.appendChild(excludeNote(a));
 
     box.appendChild(el("h3", { class: "verdict-subhead", text: "モデル別" }));
     box.appendChild(statTable(

@@ -941,6 +941,35 @@ export function run() {
       ok(!logs.some((m) => m.includes("日本語として通じているか")), "連続していないのに示唆が出た");
     });
 
+    await atest("E-38 上限に再試行の余地が無ければ開始時に警告する（D-084）", async () => {
+      // 推定は再試行を含まない（IMPL §3.3）。実測では推定11に対し17消費した。
+      // 上限ぎりぎりだと討論は通っても審判だけが落ちる。
+      const run = async (requestLimit) => {
+        const logs = [];
+        resetState();
+        const engine = createEngine({
+          callProvider: async () => ({ text: "発言", usage: {}, finishReason: "stop", elapsedMs: 1 }),
+          storage: { save: async () => {} }, clock: createFakeClock()
+        });
+        const un = on("log:append", (e) => logs.push(e.message));
+        const agents = [makeAgent(0, "mock", "mock-fast", "AI0"), makeAgent(1, "mock", "mock-fast", "AI1")];
+        await engine.start({
+          topic: "議題",
+          config: { ...DEFAULTS, agents, rounds: 1, enableSummaryRound: false, requestLimit,
+                    judge: { enabled: false, provider: null, model: null } },
+          seed: 1
+        });
+        un();
+        return logs.filter((m) => m.includes("再試行（レート制限の待機・構造化のやり直し）"));
+      };
+      // 推定2。上限3なら 2*1.5=3 > 3 ではないので出ない
+      eq((await run(3)).length, 0, "余裕があるのに警告が出た");
+      // 上限2なら 2*1.5=3 > 2 なので出る
+      const warned = await run(2);
+      eq(warned.length, 1, "余裕が無いのに警告が出ていない");
+      ok(warned[0].includes("3 以上"), "必要な上限が示されていない: " + warned[0]);
+    });
+
     await atest("E-20 議題は500字で切られる（AC-A05）", async () => {
       const { engine, cfg } = setup({ config: { rounds: 1, enableSummaryRound: false }, respond: okText });
       const r = await engine.start({ topic: "あ".repeat(600), config: cfg, seed: 1 });
