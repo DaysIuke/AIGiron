@@ -177,10 +177,14 @@ export function synthesisPrompt(session, map, maxChars = 0) {
   ].join("\n");
 }
 
+// D-080: 必須は `answer` だけ。以前は consensus / disagreements も配列であることを要求していたが、
+//   **一致点や相違点が無いときモデルは空配列を返さず、キーごと落とす**。そのたびに検証が落ち、
+//   2回再要求してから生テキスト送りになり、「結論」タブと書き出しから統合が丸ごと消えていた。
+//   採点（scores + summary）・論点（issues）も「中身の本体」だけを必須にしている。ここだけ厳しかった。
+//   欠けた配列は deanonSynthesis が空配列として扱うので、下流は壊れない。
+//   空文字の answer は結論として使えないので、非空を要求する（空カードを描かせない）。
 const SYNTHESIS_SCHEMA = {
-  answer: "string",
-  consensus: (v) => Array.isArray(v),
-  disagreements: (v) => Array.isArray(v)
+  answer: (v) => typeof v === "string" && v.trim().length > 0
 };
 
 // 匿名ラベルを表示名へ戻す。議長は名前を知らずに書くので、本文中の「参加者A」を

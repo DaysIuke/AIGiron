@@ -338,6 +338,50 @@ export async function run() {
     eq(out.synthesis.openQuestions, ["費用は誰が持つか"]);
   });
 
+  await atest("JD-34 一致点や相違点のキーが無い統合応答も受け付ける（D-080）", async () => {
+    // 実運用で踏んだ: 一致点が無いとモデルは空配列を返さずキーごと落とす。
+    // 以前は consensus / disagreements を必須にしていたため検証が落ち、
+    // 2回再要求したうえで生テキスト送りになり、結論タブと書き出しから統合が丸ごと消えていた。
+    const s = makeSession();
+    let synthCalls = 0;
+    const callProvider = async (agent, ctx) => {
+      if (ctx.user.includes("議長")) {
+        synthCalls++;
+        return { text: JSON.stringify({ answer: "評価軸を先に決めるべきである。" }) };   // 他のキーは無し
+      }
+      return ctx.user.includes("審判")
+        ? { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+            { participant: "参加者B", score: 5, reason: "r" }], winner: null, summary: "s" }) }
+        : { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast", synthesize: true },
+      callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {}
+    });
+    eq(synthCalls, 1, "1回で通るはず（再要求で無駄にリクエストを使わない）");
+    ok(!out.synthesis.raw, "生テキスト送りになっている");
+    eq(out.synthesis.answer, "評価軸を先に決めるべきである。");
+    eq(out.synthesis.consensus, [], "欠けたキーは空配列として扱うべき");
+    eq(out.synthesis.disagreements, []);
+    eq(out.synthesis.openQuestions, []);
+  });
+
+  await atest("JD-34b answer が空文字なら受け付けない（空の結論カードを描かせない）", async () => {
+    const s = makeSession();
+    const callProvider = async (agent, ctx) => {
+      if (ctx.user.includes("議長")) return { text: JSON.stringify({ answer: "   " }) };
+      return ctx.user.includes("審判")
+        ? { text: JSON.stringify({ scores: [{ participant: "参加者A", score: 5, reason: "r" },
+            { participant: "参加者B", score: 5, reason: "r" }], winner: null, summary: "s" }) }
+        : { text: JSON.stringify({ issues: [{ title: "t", positions: [] }] }) };
+    };
+    const out = await runEvaluation({
+      session: s, judgeCfg: { provider: "mock", model: "mock-fast", synthesize: true },
+      callProvider, budget: null, getKey: () => "", onLog: () => {}, sleep: async () => {}
+    });
+    ok(out.synthesis.raw, "空の answer を通してしまっている");
+  });
+
   await atest("JD-27b synthesize が無ければ従来どおり2リクエストで synthesis は null", async () => {
     const s = makeSession();
     let n = 0;
