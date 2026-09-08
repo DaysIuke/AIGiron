@@ -116,9 +116,13 @@ export function resolveRetrySec(status, headers, bodyText) {
     }
   } catch { /* JSON でなければ ③ に落ちる */ }
 
-  // ③ 本文のメッセージ。Groq は "Please try again in 23.389999999s" と書いてくる。
-  //    小数を落とすと1秒早く叩いて再び弾かれるので、期間表現ごと拾う。
-  const m = /try again in\s+((?:\d+(?:\.\d+)?\s*(?:ms|[hms])\s*)+|\d+(?:\.\d+)?)/i
+  // ③ 本文のメッセージ。小数を落とすと1秒早く叩いて再び弾かれるので、期間表現ごと拾う。
+  //    プロバイダごとに言い回しが違う（D-082）:
+  //      Groq   : "Please try again in 23.389999999s"
+  //      Gemini : "Please retry in 58.011638719s"  ← "try again in" では一致しない
+  //    実際に踏んだ: Gemini の 429 で秒数を読み落とし、指数バックオフ（2/4/8秒）で
+  //    3回叩いて諦めていた。本文には「58秒待て」と書いてあったので、素直に待てば通っていた。
+  const m = /(?:try again|retry)\s+in\s+((?:\d+(?:\.\d+)?\s*(?:ms|[hms])\s*)+|\d+(?:\.\d+)?)/i
     .exec(String(bodyText ?? ""));
   if (m) {
     const sec = parseDuration(m[1].trim());

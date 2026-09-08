@@ -72,6 +72,19 @@ export function run() {
     eq(resolveRetrySec(429, H, "try again in 1m30s"), 90);
   });
 
+  test("X-9 Gemini の「Please retry in Ns」も待機秒数として読む（D-082）", () => {
+    // 実際に踏んだ: Groq は "try again in"、Gemini は "retry in" と書く。
+    // 後者を読めず指数バックオフ（2/4/8秒）で3回叩いて諦めていた。
+    // 本文には「58秒待て」と書いてあったので、素直に待てば通っていた。
+    const body = "You exceeded your current quota... Please retry in 58.011638719s.";
+    eq(resolveRetrySec(429, H, body), 58.011638719);
+    eq(resolveRetrySec(429, H, "Please retry in 2m"), 120);
+    // Groq の言い回しも従来どおり読める
+    eq(resolveRetrySec(429, H, "Please try again in 23.389999999s"), 23.389999999);
+    // 429/503 以外では読まない
+    eq(resolveRetrySec(400, H, "Please retry in 58s"), null);
+  });
+
   test("X-8 接頭辞の無いキーもマスクされる（レビュー #7）", () => {
     // 32文字の英数字をそのまま書くと GitHub の Push Protection が Mistral のキーと誤検知して
     // 配信用リポジトリへの push を止める（D-073）。実行時に連結して、ファイル上には現れないようにする。
