@@ -283,6 +283,7 @@ input[type="number"] { width: 72px; }
 .agent-row-idx { font-family: var(--mono); font-size: 12px; }
 /* FR-03-10: ペルソナは2行目に全幅で置く（4列のグリッドに5個目を足すと36pxの列に落ちる） */
 .agent-row .agent-persona { grid-column: 1 / -1; }
+.agent-note { font-size: 12px; padding-left: 11px; }
 
 /* --- テストランナー --- */
 #test-summary { padding: 12px 16px; font-family: var(--mono); font-size: 14px; }

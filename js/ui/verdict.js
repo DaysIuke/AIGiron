@@ -117,7 +117,7 @@ export function mountVerdict(root) {
       root.appendChild(corrTable);
       const rText = corr.r === null ? "算出できません（値にばらつきがありません）"
         : corr.r.toFixed(2) + (truncated
-            ? "（**この値は冗長性バイアスの判定に使えません**）"
+            ? "（この値は冗長性バイアスの判定に使えません）"
             : Math.abs(corr.r) >= 0.5
               ? "（長さと得点に相関が見られます。冗長性バイアスの疑いがあります・B010）"
               : "（長さと得点に強い相関は見られません）");

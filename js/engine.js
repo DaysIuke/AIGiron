@@ -6,7 +6,7 @@ import { roleOf, proposerFor } from "./roles.js";
 import { buildContext, renderRoundPlain, truncate } from "./context.js";
 import { backoffSec } from "./errors.js";
 import { estimateRequests, estimateTokensPerRequest, DEFAULTS, HUMAN_ID } from "./config.js";
-import { runEvaluation, judgeBiasWarning } from "./judge.js";
+import { runEvaluation, judgeBiasWarning, mockMixWarning } from "./judge.js";
 
 function deferred() {
   let fire;
@@ -354,6 +354,9 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
           // Phase 2: 完走したら審判が採点する（FR-09/FR-10）。失敗しても完走は妨げない。
           const jc = s.config.judge;
           if (jc?.enabled && jc.provider && jc.model && !s.judgement && s.turns.length > 0) {
+            // D-079: モックと実プロバイダの食い違いは、出た結果が無意味になるので最初に言う
+            const mix = mockMixWarning(s, jc);
+            if (mix) log("WARN", mix);
             const warn = judgeBiasWarning(s, jc);
             if (warn) log("WARN", warn);   // B009: 自己贔屓バイアス
             log("INFO", "審判（" + jc.model + "）が採点しています…");
@@ -463,11 +466,21 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
 
         // D-020: finish_reason が "length" なら出力上限で文が途中で切れている。
         const truncated = res.finishReason === "length";
+        agent.truncStreak = truncated ? (agent.truncStreak ?? 0) + 1 : 0;
         if (truncated) {
           // D-021: 「文字数上限を上げろ」と言うと過去発言も伸びてレート制限に当たる。
           log("WARN", agent.name + " の発言が出力上限で途中で切れました。" +
             "文字数上限を上げると1回あたりのトークンも増えてレート制限に当たりやすくなります。" +
             "「全文で渡す直近ラウンド数」を減らすか、通信トポロジを絞るほうが安全です");
+          // D-079: 毎回切れるのは設定のせいだけとは限らない。議題の言語に向いていないモデルは
+          //   終わりどころを見つけられず上限まで書き続ける（実際に踏んだ: Groq の allam-2-7b で
+          //   日本語が崩壊したまま毎ターン上限に達した）。2回続いたら疑い先を示す。
+          if (agent.truncStreak >= 2) {
+            log("WARN", agent.name + "（" + agent.model + "）は " + agent.truncStreak +
+              "回続けて上限に達しています。発言の中身が日本語として通じているか確かめてください。" +
+              "多言語対応でないモデルは、意味の通らない文を上限まで書き続けます。" +
+              "その場合は設定でモデルを変えてください");
+          }
         }
 
         const turn = {
@@ -538,7 +551,7 @@ export function createEngine({ callProvider, storage, clock, summarizer = null, 
     });
     for (const a of s.config.agents) {
       a.status = "idle"; a.failures = 0; a.retries = 0; a.transientRetries = 0; a.emptyRetries = 0;
-      a.rateWaitTotal = 0; a.tokenBoost = 1;
+      a.rateWaitTotal = 0; a.tokenBoost = 1; a.truncStreak = 0;
     }
     s.premise = premise ?? null;
     state.session = s;

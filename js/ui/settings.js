@@ -182,15 +182,20 @@ export function mountSettings(root, openButton) {
         const isDefault = Object.values(PROVIDERS).some((d) => a.name === d.label + (i + 1));
         if (isDefault) a.name = (PROVIDERS[v]?.label ?? v) + (i + 1);
         a.provider = v;
+        // D-079: 一覧の先頭を黙って入れる。**どれが選ばれたかを利用者は知らない**まま
+        //   議論が始まり、日本語の生成能力が無いモデル（実際に踏んだ: Groq の allam-2-7b）で
+        //   壊れた発言が延々と出ることがあった。自動で選んだ事実を下の注記で必ず見せる。
         a.model = availableModels(v)[0]?.id ?? "";
+        a.modelAuto = Boolean(a.model);
         render();
       });
       const available = availableModels(a.provider);
       const modelSel = available.length
-        ? select(a.model, available.map((m) => [m.id, modelLabel(m)]), (v) => { a.model = v; })
+        ? select(a.model, available.map((m) => [m.id, modelLabel(m)]),
+            (v) => { a.model = v; a.modelAuto = false; render(); })
         : el("input", {
             type: "text", value: a.model, placeholder: "モデルを取得するか直接入力",
-            onInput: (e) => { a.model = e.target.value; }
+            onInput: (e) => { a.model = e.target.value; a.modelAuto = false; }
           });
       const nameInput = el("input", {
         type: "text", value: a.name, maxlength: "20",
@@ -207,6 +212,15 @@ export function mountSettings(root, openButton) {
         el("span", { class: "agent-row-idx", text: "#" + (i + 1) }),
         nameInput, provSel, modelSel, personaInput
       ]));
+      // D-079: 自動で選ばれたモデルは、そのままだと「自分で選んだ」と思い込まれる。
+      //   アプリ側からはそのモデルが日本語の議論に使えるかを判定できないので、そう書く。
+      if (a.modelAuto && a.model) {
+        list.appendChild(el("div", { class: "agent-note" }, [
+          el("span", { class: "field-hint judge-warn", text:
+            "#" + (i + 1) + " のモデルは一覧の先頭を自動で選びました（" + a.model + "）。" +
+            "日本語で議論できるかはモデルによります（多言語対応でないモデルは意味の通らない文を返します）。" +
+            "壊れた発言が出たら別のモデルに変えてください" })]));
+      }
     });
     body.appendChild(list);
 
@@ -390,6 +404,20 @@ export function mountSettings(root, openButton) {
             ? select(jd.model ?? "", jm.map((m) => [m.id, modelLabel(m)]), (v) => { jd.model = v; render(); })
             : el("input", { type: "text", value: jd.model ?? "", placeholder: "モデルを取得するか直接入力",
                 onInput: (e) => { jd.model = e.target.value; } })));
+        // D-079: モックと実プロバイダの食い違い。ここで気づければ議論を1回無駄にしないで済む。
+        const realAgents = draft.agents.filter((a) => a.provider !== "mock");
+        const mockAgents = draft.agents.filter((a) => a.provider === "mock");
+        const mix = jd.provider === "mock" && realAgents.length
+          ? "審判がモックです。採点・論点・結論はモックの固定出力になり、実際の評価にはなりません。履歴の集計にも入りません"
+          : jd.provider !== "mock" && mockAgents.length
+            ? "参加AIにモックが混ざっています（" + mockAgents.map((a) => a.name).join("・") +
+              "）。モックの発言を採点しても評価にならず、履歴の集計にも入りません"
+            : null;
+        if (mix) {
+          body.appendChild(el("div", { class: "field" }, [el("span"),
+            el("span", { class: "field-hint judge-warn", text: "注意: " + mix })]));
+        }
+
         // B009: 自己贔屓バイアスの警告
         const same = draft.agents.filter((a) => a.provider === jd.provider && a.model === jd.model);
         if (same.length) {

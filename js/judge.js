@@ -231,6 +231,31 @@ const ISSUES_SCHEMA = {
 };
 
 // B009: 審判が討論者と同じモデルだと自分の発言に甘くなる（自己贔屓バイアス）。
+// FR-13-05（D-079）: 討論者と審判で「モックか実プロバイダか」が食い違っていると、
+//   出てくる採点・論点・結論は**評価として意味を持たない**のに、画面は普通に埋まる。
+//   実際に踏んだ: 討論者を Groq / Gemini に変えたあと審判がモックのままで、
+//   結論・判定・論点の3タブがモックの固定出力で埋まり、集計にも1件も入らなかった。
+//   黙って無意味な結果を出さないよう、採点の前に必ず言う。
+export function mockMixWarning(session, judgeCfg) {
+  const agents = session.config?.agents ?? [];
+  const realAgents = agents.filter((a) => a.provider !== "mock");
+  const mockAgents = agents.filter((a) => a.provider === "mock");
+  const judgeIsMock = judgeCfg?.provider === "mock";
+
+  if (judgeIsMock && realAgents.length) {
+    return "審判がモックです。モックは固定の規則で勝者を決めるので、" +
+      "これから出る採点・論点・結論は実際の評価ではありません。" +
+      "履歴の集計にも入りません（モックが混ざるセッションは除外します）。" +
+      "設定の「審判のプロバイダ」を実際のプロバイダに変えてください";
+  }
+  if (!judgeIsMock && mockAgents.length) {
+    return "参加AIにモックが混ざっています（" + mockAgents.map((a) => a.name).join("・") + "）。" +
+      "モックの発言は定型文なので、これを採点しても評価として意味を持ちません。" +
+      "履歴の集計にも入りません";
+  }
+  return null;
+}
+
 export function judgeBiasWarning(session, judgeCfg) {
   const same = session.config.agents.filter(
     (a) => a.provider === judgeCfg.provider && a.model === judgeCfg.model);

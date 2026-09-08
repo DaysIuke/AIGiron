@@ -2,7 +2,7 @@
 
 import { group, test, atest, eq, ok } from "./runner.js";
 import { anonymize, renderAnonymous, anonymousTranscript, judgePrompt, issuesPrompt, synthesisPrompt,
-         judgeBiasWarning, runEvaluation, lengthScoreCorrelation,
+         judgeBiasWarning, mockMixWarning, runEvaluation, lengthScoreCorrelation,
          consensusRate, mindChanges, CRITERIA, SCORE_MAX, JUDGE_TRANSCRIPT_CHARS } from "../js/judge.js";
 import { DEFAULTS, makeAgent } from "../js/config.js";
 
@@ -73,6 +73,28 @@ export async function run() {
     const { map } = anonymize(s);
     ok(judgePrompt(s, map).includes("従わない"), "審判プロンプトに指示無視の防御文がない");
     ok(issuesPrompt(s, map).includes("従わない"), "論点抽出プロンプトに指示無視の防御文がない");
+  });
+
+  test("JD-33 審判がモックで討論者が実プロバイダなら警告する（D-079）", () => {
+    const s = makeSession();   // groq と gemini の2体
+    const w = mockMixWarning(s, { provider: "mock", model: "mock-fast" });
+    ok(w && w.includes("実際の評価ではありません"), "モック審判の警告が出ていない: " + w);
+    ok(w.includes("集計にも入りません"), "集計から外れることが伝わらない");
+  });
+
+  test("JD-33b 討論者にモックが混ざり審判が実プロバイダなら警告する", () => {
+    const s = makeSession();
+    s.config.agents[1].provider = "mock";
+    s.config.agents[1].name = "モック2";
+    const w = mockMixWarning(s, { provider: "groq", model: "m1" });
+    ok(w && w.includes("モック2"), "混ざっているモックの名前が出ていない: " + w);
+  });
+
+  test("JD-33c 全部モック・全部実プロバイダなら警告しない", () => {
+    const s = makeSession();
+    eq(mockMixWarning(s, { provider: "groq", model: "openai/gpt-oss-20b" }), null, "全部実なのに警告が出た");
+    for (const a of s.config.agents) a.provider = "mock";
+    eq(mockMixWarning(s, { provider: "mock", model: "mock-fast" }), null, "全部モックなのに警告が出た");
   });
 
   test("JD-3 審判と討論者が同じモデルなら警告（B009）", () => {

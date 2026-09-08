@@ -2,7 +2,7 @@
 
 import { group, atest, eq, ok, athrows } from "./runner.js";
 import { createEngine, maxTokensFor } from "../js/engine.js";
-import { state, resetState } from "../js/state.js";
+import { state, on, resetState } from "../js/state.js";
 import { createFakeClock } from "../js/clock.js";
 import { DEFAULTS, makeAgent } from "../js/config.js";
 
@@ -891,6 +891,49 @@ export function run() {
       const { engine, cfg } = setup({ n: 2, config: { rounds: 1, enableSummaryRound: false }, respond: okText });
       const r = await engine.start({ topic: "議題", config: cfg, seed: 1 });
       eq(r.session.premise, null);
+    });
+
+    await atest("E-37 出力上限で2回続けて切れたらモデルの適性を疑うよう促す（D-079）", async () => {
+      const logs = [];
+      resetState();
+      const clock = createFakeClock();
+      const callProvider = async () => ({ text: "途中で切れた発言", usage: {}, finishReason: "length", elapsedMs: 1 });
+      const engine = createEngine({ callProvider, storage: { save: async () => {} }, clock });
+      const un = on("log:append", (e) => logs.push(e.message));
+      const agents = [makeAgent(0, "mock", "mock-fast", "AI0"), makeAgent(1, "mock", "mock-fast", "AI1")];
+      const r = await engine.start({
+        topic: "議題",
+        config: { ...DEFAULTS, agents, rounds: 2, enableSummaryRound: false, requestLimit: 50,
+                  judge: { enabled: false, provider: null, model: null } },
+        seed: 1
+      });
+      un();
+      eq(r.status, "done");
+      const hints = logs.filter((m) => m.includes("日本語として通じているか"));
+      ok(hints.length > 0, "2回続けて切れたのに適性の示唆が出ていない");
+      ok(/AI[01]（mock-fast）/.test(hints[0]), "どのAIとモデルか分からない: " + hints[0]);
+    });
+
+    await atest("E-37b 途中で成功したら連続カウントは戻る", async () => {
+      const logs = [];
+      resetState();
+      let n = 0;
+      const callProvider = async () => {
+        n += 1;
+        // 1回目だけ切れ、以降は正常。連続にならないので示唆は出ない
+        return { text: "発言", usage: {}, finishReason: n === 1 ? "length" : "stop", elapsedMs: 1 };
+      };
+      const engine = createEngine({ callProvider, storage: { save: async () => {} }, clock: createFakeClock() });
+      const un = on("log:append", (e) => logs.push(e.message));
+      const agents = [makeAgent(0, "mock", "mock-fast", "AI0"), makeAgent(1, "mock", "mock-fast", "AI1")];
+      await engine.start({
+        topic: "議題",
+        config: { ...DEFAULTS, agents, rounds: 2, enableSummaryRound: false, requestLimit: 50,
+                  judge: { enabled: false, provider: null, model: null } },
+        seed: 1
+      });
+      un();
+      ok(!logs.some((m) => m.includes("日本語として通じているか")), "連続していないのに示唆が出た");
     });
 
     await atest("E-20 議題は500字で切られる（AC-A05）", async () => {
