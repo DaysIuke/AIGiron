@@ -61,6 +61,26 @@ export const ROLE_INSTRUCTIONS = {
     "総括です。①あなたの最終見解 ②相手の主張のうち認める点、をそれぞれ簡潔に述べてください。"
 };
 
+// FR-03-11（D-088）: 進行役（タイムキーパー）。**議論のどこにいるか**を毎ターン伝える。
+//   これが無いと、参加AIは最後まで新しい論点を出し続け、総括で急に収束する。
+//   利用者の実キー実行（リモートワーク・著作権の2回）が両方ともこの形になっていた。
+//   参照実装 takano32/ChatGPT-vs-Gemini の TIMEKEEPER から採った発想。
+//   段階の切り方も同じ（序盤=出し切る／中盤=絞って深める／終盤=収束）。
+export function progressNote(round, rounds, hasSummary) {
+  if (round > rounds) {
+    return "【進行状況】総括ラウンドです。新しい論点は出さず、これまでの議論を踏まえて結論を述べてください。";
+  }
+  const remain = rounds - round + (hasSummary ? 1 : 0);
+  const ratio = round / rounds;
+  const phase = ratio <= 1 / 3
+    ? "いまは序盤です。論点を出し切り、立場を明確にしてください。"
+    : ratio <= 2 / 3
+      ? "いまは中盤です。論点を絞り、重要なものを深めてください。"
+      : "いまは終盤です。新しい論点は出さず、結論に向けて収束させてください。";
+  return "【進行状況】ラウンド " + round + " / " + rounds +
+    "（残り " + remain + " 回の発言）。" + phase;
+}
+
 export function roundInstruction(role) {
   return ROLE_INSTRUCTIONS[role] ?? ROLE_INSTRUCTIONS.free;
 }

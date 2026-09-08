@@ -25,6 +25,8 @@ function makeSession(overrides = {}) {
   };
 }
 
+const NLNL = String.fromCharCode(10, 10);
+
 export function run() {
   group("context.js コンテキスト構築");
 
@@ -200,6 +202,68 @@ export function run() {
     const len = (sh) => { s.contextShrink = sh; return buildContext(s, s.config.agents[0], 1, "propose").user.length; };
     const l0 = len(0), l1 = len(1), l2 = len(2);
     ok(l1 < l0 && l2 < l1, "縮小しても前提が短くなっていない: " + [l0, l1, l2].join(","));
+  });
+
+  test("C-23 進行役が残りと段階を伝える（FR-03-11・D-088）", () => {
+    // これが無いと、参加AIは最後まで新しい論点を出し続け、総括で急に収束する。
+    // 利用者の実キー実行が2回ともその形になっていた。
+    const s = makeSession({ rounds: 6, enableSummaryRound: true });
+    const noteOf = (round) => {
+      const u = buildContext(s, s.config.agents[0], round, "propose").user;
+      return (u.split("【進行状況】")[1] ?? "").split(NLNL)[0];
+    };
+    ok(noteOf(1).includes("序盤"), "R1 が序盤でない: " + noteOf(1));
+    ok(noteOf(3).includes("中盤"), "R3 が中盤でない: " + noteOf(3));
+    ok(noteOf(6).includes("終盤"), "R6 が終盤でない: " + noteOf(6));
+    ok(noteOf(1).includes("ラウンド 1 / 6"), "現在地が出ていない: " + noteOf(1));
+    ok(noteOf(1).includes("残り 6 回"), "残りが違う（6ラウンド＋総括で R1 なら残り6）: " + noteOf(1));
+    // 総括ラウンドは専用の文
+    ok(noteOf(7).includes("総括ラウンド") && noteOf(7).includes("新しい論点は出さず"),
+      "総括の進行状況が違う: " + noteOf(7));
+  });
+
+  test("C-23b 進行役は指示のすぐ手前に置かれる（C017）", () => {
+    const s = makeSession();
+    const { user } = buildContext(s, s.config.agents[0], 1, "propose");
+    const p = user.indexOf("【進行状況】");
+    const q = user.indexOf("【今回あなたがすること】");
+    ok(p > 0 && q > p, "進行状況が指示の手前に無い");
+    ok(user.slice(p, q).split(NLNL).length === 2, "進行状況と指示の間に他のブロックがある");
+  });
+
+  test("C-24 総括ラウンドでは他者の総括を渡さない（FR-03-12・D-088）", () => {
+    // 渡すと2人目が1人目のまとめを読んでから書き、追従（B012）と位置バイアス（B003）が
+    // そのまま結論に乗る。合意度（FR-09-03）と意見変更回数（FR-09-04）はその総括を
+    // 含む議論から測るので、見かけの合意が水増しされる。
+    const s = makeSession({ rounds: 3, enableSummaryRound: true, contextRounds: 2 });
+    s.turns = [
+      { round: 3, agentId: "a0", role: "critique", text: "R3のアルファの通常発言" },
+      { round: 3, agentId: "a1", role: "critique", text: "R3のブラボーの通常発言" },
+      { round: 4, agentId: "a1", role: "summary", text: "ブラボーの総括です" }
+    ];
+    // a0 が総括する番。ブラボーの総括は渡さず、通常発言だけを渡す
+    const { user } = buildContext(s, s.config.agents[0], 4, "summary");
+    ok(!user.includes("ブラボーの総括です"), "他者の総括が渡っている（追従の温床）");
+    ok(user.includes("R3のブラボーの通常発言"), "同じ材料（最後の通常発言）が渡っていない");
+  });
+
+  test("C-24b 通常ラウンドでは同じラウンドの他者の発言を渡す（議論が成立しなくなる）", () => {
+    const s = makeSession({ rounds: 3, contextRounds: 2 });
+    s.turns = [{ round: 2, agentId: "a1", role: "propose", text: "R2のブラボーの発言" }];
+    const { user } = buildContext(s, s.config.agents[0], 2, "critique");
+    ok(user.includes("R2のブラボーの発言"), "同ラウンドの発言まで落としている");
+  });
+
+  test("C-24c 総括ラウンドでも司会の差し込みは渡る（FR-05-07）", () => {
+    const s = makeSession({ rounds: 3, enableSummaryRound: true, contextRounds: 2 });
+    s.turns = [
+      { round: 3, agentId: "a1", role: "critique", text: "R3のブラボーの通常発言" },
+      { round: 4, agentId: "a1", role: "summary", text: "ブラボーの総括です" },
+      { round: 4, index: -1, agentId: "human", role: "moderator", text: "費用の話を必ず入れて" }
+    ];
+    const { user } = buildContext(s, s.config.agents[0], 4, "summary");
+    ok(user.includes("費用の話を必ず入れて"), "総括ラウンドで司会の差し込みが落ちた");
+    ok(!user.includes("ブラボーの総括です"), "他者の総括が渡っている");
   });
 
   test("C-11 persona があれば system に注入される（FR-03-09 ソロ議論モード）", () => {

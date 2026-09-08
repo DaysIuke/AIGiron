@@ -2,7 +2,7 @@
 // session.summaries は読むだけ。書き込みは engine が行う（BD §4.9）。
 
 import { ROLE_LABELS, HUMAN_ID } from "./config.js";
-import { systemPrompt, roundInstruction } from "./prompts.js";
+import { systemPrompt, roundInstruction, progressNote } from "./prompts.js";
 
 // A033: 疎な通信でトークンを削減する
 // A005: 通信トポロジの4形態
@@ -103,8 +103,17 @@ export function buildContext(session, agent, round, role) {
 
   // 直近 contextRounds ラウンドは全文。自分の発言はここから外す。
   // FR-05-07: 司会（人間）の差し込みはトポロジで絞らず、直近の範囲にあれば必ず渡す。
+  // FR-03-12（D-088）: **総括ラウンドでは、同じラウンドの他者の総括を渡さない**。
+  //   渡すと2人目以降が1人目のまとめを読んでから書くことになり、追従（B012）と
+  //   位置バイアス（B003）がそのまま結論に乗る。さらに悪いことに、AIGiron は
+  //   合意度（FR-09-03）と意見変更回数（FR-09-04）を**その総括を含む議論から測る**ので、
+  //   見かけの合意が水増しされる。**測定対象を測定手順が汚している**状態だった。
+  //   全員に同じ材料（最後の通常ラウンドまで）を渡して独立にまとめさせる。
+  //   参照実装 takano32/ChatGPT-vs-Gemini も同じ理由で相手の「最後の通常発言」を渡している。
+  const isSummaryRound = round > cfg.rounds;
   const recentAll = session.turns.filter(
-    (t) => t.round >= recentFrom && t.round <= round && t.agentId !== agent.id
+    (t) => t.round >= recentFrom && t.round <= round && t.agentId !== agent.id &&
+      !(isSummaryRound && t.round === round && t.agentId !== HUMAN_ID)
   );
   const notes = recentAll.filter((t) => t.agentId === HUMAN_ID);
   const recent = recentAll.filter((t) => t.agentId !== HUMAN_ID);
@@ -133,6 +142,9 @@ export function buildContext(session, agent, round, role) {
       notes.map((t) => `R${t.round}: 「${neutralize(t.text)}」`).join("\n") +
       "\n司会は議論の運営者です。上の指示・質問には次の発言の中で必ず応えてください。");
   }
+
+  // FR-03-11（D-088）: 進行役。指示の直前に置いて、残りと段階を意識させる（C017 の直前）。
+  parts.push(progressNote(round, cfg.rounds, Boolean(cfg.enableSummaryRound)));
 
   // C017: 重要な指示は末尾に置く
   parts.push("【今回あなたがすること】\n" + roundInstruction(role));
