@@ -383,6 +383,17 @@ input[type="number"] { width: 72px; }
 }
 .corr-chars { color: var(--fg-dim); }
 
+/* 履歴の横断集計（FR-07-08・D-078） */
+.stats-box { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 10px; }
+.stats-head { margin-bottom: 6px; }
+.stat-table { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.stat-row { display: flex; gap: 8px; font-size: 12px; }
+.stat-head { color: var(--fg-dim); border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+.stat-head span { flex: 1 1 0; text-align: right; }
+.stat-head span:first-child { flex: 2 1 0; text-align: left; }
+.stat-name { flex: 2 1 0; font-family: var(--mono); word-break: break-all; }
+.stat-num { flex: 1 1 0; font-family: var(--mono); text-align: right; }
+
 /* 結論タブ（FR-08-09・D-070） */
 .synth-answer {
   border: 1px solid var(--accent); border-radius: 6px;

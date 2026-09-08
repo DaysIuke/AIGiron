@@ -4,6 +4,7 @@ import { el, clear } from "./dom.js";
 import { bindModal } from "./modal.js";
 import { state } from "../state.js";
 import { downloadJson, pickJsonFile, timestampedName } from "../filesave.js";
+import { aggregate, pct, MIN_RELIABLE } from "../stats.js";
 
 function pad(n) { return String(n).padStart(2, "0"); }
 function stamp(ms) {
@@ -34,6 +35,7 @@ export function looksLikeSession(v) {
 
 export function mountSessions(root, openButton, { storage, engine }) {
   let importStatus = "";
+  let showStats = false;   // 集計は畳んでおく。既定は今までどおり一覧
   const modal = bindModal(root, close);
 
   function close() { modal.closed(); clear(root); root.hidden = true; }
@@ -49,6 +51,78 @@ export function mountSessions(root, openButton, { storage, engine }) {
       ]),
       body
     ]));
+  }
+
+  // 集計の表。母数（件数）を必ず並べて出す。割合だけを出すと n=2 の 100% を実力と読んでしまう。
+  function statTable(head, rows) {
+    const table = el("div", { class: "stat-table" });
+    table.appendChild(el("div", { class: "stat-row stat-head" },
+      head.map((h) => el("span", { text: h }))));
+    for (const cells of rows) {
+      table.appendChild(el("div", { class: "stat-row" },
+        cells.map((c, i) => el("span", { class: i === 0 ? "stat-name" : "stat-num", text: c }))));
+    }
+    return table;
+  }
+
+  function renderStats(list) {
+    const box = el("div", { class: "stats-box" });
+    const a = aggregate(list);
+
+    const toggle = el("button", {
+      class: "btn-mini", type: "button",
+      text: showStats ? "集計を隠す" : "これまでの傾向を見る（" + a.judged + " セッション）",
+      onClick: () => { showStats = !showStats; render(); }
+    });
+    box.appendChild(el("div", { class: "stats-head" }, [toggle]));
+    if (!showStats) return box;
+
+    if (!a.judged) {
+      box.appendChild(el("p", { class: "field-hint", text:
+        "採点まで終えたセッションがまだありません。設定で審判を有効にして議論を完走させると、" +
+        "ここにモデル別の傾向が溜まります" +
+        (a.mockSkipped ? "（モックだけのセッション " + a.mockSkipped + " 件は集計から除いています）" : "") }));
+      return box;
+    }
+
+    if (!a.reliable) {
+      box.appendChild(el("p", { class: "field-hint judge-warn", text:
+        "採点済み " + a.judged + " セッション。" + MIN_RELIABLE +
+        " 件未満では、割合を実力として読めません。傾向として見るには回数が要ります（B001 は3,000票で測っています）" }));
+    }
+    if (a.mockSkipped) {
+      box.appendChild(el("p", { class: "field-hint", text:
+        "モックが混ざるセッション " + a.mockSkipped + " 件は集計から除いています（実モデルの傾向を汚さないため）" }));
+    }
+
+    box.appendChild(el("h3", { class: "verdict-subhead", text: "モデル別" }));
+    box.appendChild(statTable(
+      ["モデル", "出場", "AI勝率", "平均得点", "あなたの勝率", "平均星"],
+      a.models.map((m) => [
+        m.key, String(m.appearances), pct(m.aiWinRate),
+        m.avgScore === null ? "—" : pct(m.avgScore),
+        m.humanVotes ? pct(m.humanWinRate) + "（" + m.humanVotes + "）" : "—",
+        m.avgStars === null ? "—" : m.avgStars.toFixed(1)
+      ])));
+
+    if (a.judges.length) {
+      box.appendChild(el("h3", { class: "verdict-subhead", text: "審判別" }));
+      box.appendChild(statTable(
+        ["審判モデル", "担当", "不安定率", "あなたと一致", "自己贔屓"],
+        a.judges.map((g) => [
+          g.key, String(g.sessions),
+          g.stabilityChecked ? pct(g.unstableRate) + "（" + g.stabilityChecked + "）" : "—",
+          g.agreeBoth ? pct(g.agreeRate) + "（" + g.agreeBoth + "）" : "—",
+          g.selfCases ? pct(g.selfWinRate) + "（" + g.selfCases + "）" : "—"
+        ])));
+      box.appendChild(el("p", { class: "field-hint", text:
+        "括弧内は母数。「あなたと一致」は、AIの判定とあなたの投票の勝者が同じだった割合です" +
+        "（B001 の agreement rate をあなた個人に対して測ったもの）。" +
+        "低いなら、その審判の言うことはあなたの基準とは違うと分かります。" +
+        "「不安定率」は安定性チェック（設定でON）で勝者が入れ替わった割合、" +
+        "「自己贔屓」は審判と同じモデルの参加者がいた回のうち、その参加者が勝った割合です（B009）" }));
+    }
+    return box;
   }
 
   async function render() {
@@ -110,6 +184,10 @@ export function mountSessions(root, openButton, { storage, engine }) {
       }),
       importMsg
     ]));
+
+    // FR-07-08（D-078）: 溜まったセッションの横断集計。
+    //   1回の判定は信用できない（B001 は3,000票で測っている）。回数を重ねて初めて意味を持つ。
+    body.appendChild(renderStats(list));
 
     if (!list.length) {
       body.appendChild(el("p", { class: "placeholder", text: "保存されたセッションはありません。" }));

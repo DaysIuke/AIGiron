@@ -142,6 +142,17 @@ export function mountVerdict(root) {
 
     root.appendChild(el("h3", { class: "verdict-subhead", text: "あなたの評価（AIの判定とは別に記録します）" }));
     const votes = s.votes ?? { winnerAgentId: null, stars: {}, at: null };
+
+    // FR-08-11（D-078）: B003 の Human-in-the-Loop Calibration。
+    //   「難しい例では人間に助けを求める」を、判定が割れているときの促しとして実装する。
+    //   常に出すと文字が増えるだけなので、**不安定 or 僅差のときだけ**出す。
+    const need = needsHuman(s.judgement);
+    if (need && !votes.at) {
+      root.appendChild(el("p", { class: "field-hint judge-warn", text:
+        "この判定は割れています（" + need + "）。あなたの判断を記録しておくと、" +
+        "履歴の集計で「この審判はあなたの基準とどれだけ合うか」が分かるようになります" }));
+    }
+
     const box = el("div", { class: "vote-box" });
 
     for (const a of s.config.agents) {
@@ -182,6 +193,19 @@ export function mountVerdict(root) {
         "勝者と星は独立して付けられます。AIの採点結果には影響しません" }));
     }
     root.appendChild(box);
+  }
+
+  // 判定が割れているか。理由の文字列を返す（割れていなければ null）。
+  function needsHuman(j) {
+    if (!j || j.raw || !Array.isArray(j.scores)) return null;
+    if (j.stability?.checked && j.stability.unstable) return "ラベルを反転すると勝者が変わった";
+    const sorted = [...j.scores].filter((x) => Number.isFinite(x.score)).sort((a, b) => b.score - a.score);
+    if (sorted.length >= 2) {
+      const max = sorted[0].maxScore ?? 10;
+      // 満点の 5%（20点満点なら1点）以内なら僅差とみなす
+      if (sorted[0].score - sorted[1].score <= max * 0.05) return "上位2体の得点差が僅か";
+    }
+    return null;
   }
 
   function saveVote(next) {

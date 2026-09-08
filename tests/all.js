@@ -24,6 +24,7 @@ import { run as runAnthropic } from "./anthropic.test.js";
 import { run as runJsonx } from "./jsonx.test.js";
 import { run as runJudge } from "./judge.test.js";
 import { run as runPanels } from "./panels.test.js";
+import { run as runStats } from "./stats.test.js";
 
 (async () => {
   try {
@@ -43,6 +44,7 @@ import { run as runPanels } from "./panels.test.js";
     runMarkdown();
     runUsage();
     runPanels();
+    runStats();
     await runProviders();
     await runGemini();
     await runAnthropic();

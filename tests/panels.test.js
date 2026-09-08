@@ -94,6 +94,43 @@ export function run() {
     ok(root.textContent.includes("相関係数:"), "相関が出ていない");
   });
 
+  test("VP-5 不安定・僅差の判定では人間の判断を促す（B003 Human-in-the-Loop・D-078）", () => {
+    const mk = (scores, stability) => session({
+      judgement: { scores, winnerAgentId: "a0", summary: "s", ...(stability ? { stability } : {}) }
+    });
+    const sc = (a, b) => [
+      { agentId: "a0", participant: "参加者A", score: a, maxScore: 20, reason: "r" },
+      { agentId: "a1", participant: "参加者B", score: b, maxScore: 20, reason: "r" }
+    ];
+    // 不安定
+    const r1 = el("div");
+    show(r1, mountVerdict, mk(sc(16, 8), { checked: true, unstable: true }));
+    ok(r1.textContent.includes("ラベルを反転すると勝者が変わった"), "不安定なのに促していない");
+
+    // 僅差（20点満点で1点差 = 5%以内）
+    const r2 = el("div");
+    show(r2, mountVerdict, mk(sc(15, 14), null));
+    ok(r2.textContent.includes("上位2体の得点差が僅か"), "僅差なのに促していない");
+
+    // 差が大きく安定していれば出さない
+    const r3 = el("div");
+    show(r3, mountVerdict, mk(sc(18, 6), { checked: true, unstable: false }));
+    ok(!r3.textContent.includes("この判定は割れています"), "割れていないのに促している");
+  });
+
+  test("VP-5b 既に投票済みなら促さない", () => {
+    const root = el("div");
+    show(root, mountVerdict, session({
+      judgement: {
+        scores: [{ agentId: "a0", participant: "参加者A", score: 15, maxScore: 20, reason: "r" },
+                 { agentId: "a1", participant: "参加者B", score: 14, maxScore: 20, reason: "r" }],
+        winnerAgentId: "a0", summary: "s"
+      },
+      votes: { winnerAgentId: "a0", stars: {}, at: Date.now() }
+    }));
+    ok(!root.textContent.includes("この判定は割れています"), "投票済みなのに促している");
+  });
+
   test("VP-3 raw だけの判定はこれまでどおり原文で出る（AC-A15）", () => {
     const root = el("div");
     show(root, mountVerdict, session({ judgement: { raw: "壊れたJSONの原文" } }));
