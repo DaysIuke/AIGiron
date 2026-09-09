@@ -90,4 +90,20 @@ export function run() {
     eq(roleOf(0, 1, cfg(3, { format: "allpropose" })), "both");
     eq(roleOf(0, 1, cfg(3, { format: "debate" })), "stance");
   });
+
+  // R-8: R-5 は rotation だけ、R-6 は R1 だけを見ていた。その隙間に落ちていた（D-089）
+  test("R-8 どの形式でも総括ラウンドは summary（D-089）", () => {
+    for (const format of ["rotation", "debate", "allpropose", "free"]) {
+      eq(roleOf(0, 4, cfg(3, { rounds: 3, format })), "summary",
+        format + " の総括ラウンドで summary が返っていない");
+      eq(roleOf(1, 5, cfg(3, { rounds: 3, format })), "summary",
+        format + " の総括より後のラウンドでも summary のはず");
+    }
+  });
+
+  test("R-9 通常ラウンドの役割は形式ごとに変わらない（R-8 の修正で壊していない）", () => {
+    eq(roleOf(0, 3, cfg(3, { rounds: 3, format: "debate" })), "stance");
+    eq(roleOf(0, 3, cfg(3, { rounds: 3, format: "free" })), "free");
+    eq(roleOf(0, 3, cfg(3, { rounds: 3, format: "allpropose" })), "both");
+  });
 }
